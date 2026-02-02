@@ -1,6 +1,6 @@
 ## TempoOutlookSync
 
-- This application requires to have Classic Outlook to be installed, because it uses COM objects to avoid the Graph API.
+- This application requires to have Classic Outlook to be installed **and running**, because it uses COM objects to avoid the Graph API.
 - This application requires you to provide your UserId and Tempo API Token at the first startup.
 
 If the connection is successful the data will be stored so no need to type it on every start.
