@@ -66,11 +66,14 @@ namespace TempoOutlookSync
                 {
                     foreach (var result in results.EnumerateArray())
                     {
+                        var id = result.GetProperty("id").GetInt32();
+                        var hasDescription = result.TryGetProperty("description", out var description);
+
                         entries.Add(new TempoPlannerEntry(
-                            result.GetProperty("id").GetInt32(),
+                            id,
                             DateTime.ParseExact(result.GetProperty("startDate").GetString(), TempoDateFormat, CultureInfo.InvariantCulture),
                             DateTime.ParseExact(result.GetProperty("endDate").GetString(), TempoDateFormat, CultureInfo.InvariantCulture),
-                            result.GetProperty("description").GetString(),
+                            hasDescription ? description.GetString() : $"Issue #{id}",
                             TimeSpan.ParseExact(result.GetProperty("startTime").GetString(), @"hh\:mm", CultureInfo.InvariantCulture),
                             TimeSpan.FromSeconds(result.GetProperty("plannedSecondsPerDay").GetInt64()),
                             ParseRecurrenceRule(result.GetProperty("rule").GetString()),
