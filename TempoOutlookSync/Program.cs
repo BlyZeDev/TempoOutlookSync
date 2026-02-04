@@ -61,7 +61,7 @@ namespace TempoOutlookSync
                         var items = outlook.GetNamespace("MAPI").GetDefaultFolder(OlDefaultFolders.olFolderCalendar).Items;
                         items.IncludeRecurrences = false;
                         items.Sort("[Start]");
-                        items = items.Restrict($"[Start] >= '{dateNow:MM/dd/yyyy HH:mm}' AND [Start] <= '{dateEnd:MM/dd/yyyy HH:mm}' AND [MessageClass] = 'IPM.Appointment'");
+                        items = items.Restrict($"[MessageClass] = 'IPM.Appointment'");
 
                         var existingIds = new HashSet<string>();
                         foreach (AppointmentItem item in items)
