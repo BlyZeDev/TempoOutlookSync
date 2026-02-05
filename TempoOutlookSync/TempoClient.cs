@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Runtime.InteropServices.ComTypes;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -68,6 +67,7 @@ namespace TempoOutlookSync
                     {
                         var id = result.GetProperty("id").GetInt32();
                         var hasDescription = result.TryGetProperty("description", out var description);
+                        var hasIncludeNonWorkingDays = result.TryGetProperty("includeNonWorkingDays", out var includeNonWorkingDays);
 
                         entries.Add(new TempoPlannerEntry(
                             id,
@@ -77,7 +77,8 @@ namespace TempoOutlookSync
                             TimeSpan.ParseExact(result.GetProperty("startTime").GetString(), @"hh\:mm", CultureInfo.InvariantCulture),
                             TimeSpan.FromSeconds(result.GetProperty("plannedSecondsPerDay").GetInt64()),
                             ParseRecurrenceRule(result.GetProperty("rule").GetString()),
-                            DateTime.ParseExact(result.GetProperty("recurrenceEndDate").GetString(), TempoDateFormat, CultureInfo.InvariantCulture)));
+                            DateTime.ParseExact(result.GetProperty("recurrenceEndDate").GetString(), TempoDateFormat, CultureInfo.InvariantCulture),
+                            !hasIncludeNonWorkingDays || includeNonWorkingDays.GetBoolean()));
                     }
                 }
 

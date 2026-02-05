@@ -1,6 +1,6 @@
 ﻿using Microsoft.Office.Interop.Outlook;
 using System;
-using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace TempoOutlookSync
@@ -8,7 +8,7 @@ namespace TempoOutlookSync
     sealed class Program
     {
         private const string OutlookPropertyId = "TempoId";
-        private static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
+        private static readonly TimeSpan Interval = TimeSpan.FromMinutes(15);
 
         static async Task Main()
         {
@@ -48,6 +48,7 @@ namespace TempoOutlookSync
 
                 Console.WriteLine("Connection established successfully.");
                 Console.WriteLine("This window can now be minimized");
+                Console.WriteLine();
 
                 var outlook = new Application();
 
@@ -55,6 +56,8 @@ namespace TempoOutlookSync
                 {
                     try
                     {
+                        Console.WriteLine("Sync started");
+
                         var dateNow = DateTime.Now;
                         var dateEnd = dateNow.AddYears(1);
 
@@ -63,21 +66,28 @@ namespace TempoOutlookSync
                         items.Sort("[Start]");
                         items = items.Restrict($"[MessageClass] = 'IPM.Appointment'");
 
-                        var existingIds = new HashSet<string>();
-                        foreach (AppointmentItem item in items)
-                        {
-                            var userProp = item.UserProperties.Find(OutlookPropertyId);
-                            if (userProp != null) existingIds.Add(userProp.Value);
-                        }
+                        var existingTempoAppointments = items
+                            .OfType<AppointmentItem>()
+                            .Select(item => new
+                            {
+                                Item = item,
+                                Prop = item.UserProperties.Find(OutlookPropertyId)
+                            })
+                            .Where(x => x.Prop?.Value != null)
+                            .ToLookup(x => Convert.ToString(x.Prop.Value), x => x.Item);
 
                         foreach (var entry in await tempoClient.GetPlannerEntriesAsync(dateNow, dateEnd))
                         {
-                            if (existingIds.Contains(entry.Id.ToString())) continue;
+                            foreach (var item in existingTempoAppointments[entry.Id.ToString()]) item.Delete();
 
                             if (entry.RecurrenceRule is RecurrenceRule.Never && entry.End.Date > entry.Start.Date)
                             {
                                 for (var day = entry.Start.Date; day <= entry.End.Date; day = day.AddDays(1))
+                                {
+                                    if (!entry.IncludeNonWorkingDays && (day.DayOfWeek is DayOfWeek.Saturday || day.DayOfWeek is DayOfWeek.Sunday)) continue;
+
                                     CreateSingle(outlook, entry, day + entry.StartTime);
+                                }
 
                                 continue;
                             }
@@ -89,7 +99,7 @@ namespace TempoOutlookSync
                                     var monthlyStart = day + entry.StartTime;
 
                                     var monthlyAppointment = CreateBase(outlook, entry, monthlyStart);
-
+                                    
                                     ApplyRecurrence(monthlyAppointment, entry, monthlyStart);
 
                                     monthlyAppointment.Save();
@@ -106,6 +116,8 @@ namespace TempoOutlookSync
 
                             appointment.Save();
                         }
+
+                        Console.WriteLine($"Sync finished, next sync in {Interval.TotalMinutes:F2} minutes");
                     }
                     catch (System.Exception ex)
                     {
@@ -125,8 +137,7 @@ namespace TempoOutlookSync
             appointment.Body = $"[AutoImport by Jira Tempo]\n{entry.Description}";
             appointment.Start = start;
             appointment.BusyStatus = OlBusyStatus.olBusy;
-            appointment.ReminderSet = true;
-            appointment.ReminderMinutesBeforeStart = 15;
+            appointment.ReminderSet = false;
 
             appointment.UserProperties.Add(OutlookPropertyId, OlUserPropertyType.olText).Value = entry.Id.ToString();
 
@@ -153,7 +164,7 @@ namespace TempoOutlookSync
             {
                 recurrence.RecurrenceType = OlRecurrenceType.olRecursWeekly;
                 recurrence.Interval = entry.RecurrenceRule is RecurrenceRule.BiWeekly ? 2 : 1;
-                recurrence.DayOfWeekMask = BuildMask(entry.Start.Date, entry.End.Date);
+                recurrence.DayOfWeekMask = BuildMask(entry.Start.Date, entry.End.Date, entry.IncludeNonWorkingDays);
             }
 
             recurrence.NoEndDate = false;
@@ -165,7 +176,7 @@ namespace TempoOutlookSync
             recurrence.EndTime = start + entry.DurationPerDay;
         }
 
-        private static OlDaysOfWeek BuildMask(DateTime start, DateTime end)
+        private static OlDaysOfWeek BuildMask(DateTime start, DateTime end, bool includeNonWorkingDays)
         {
             OlDaysOfWeek mask = 0;
 
@@ -181,6 +192,12 @@ namespace TempoOutlookSync
                     case DayOfWeek.Saturday: mask |= OlDaysOfWeek.olSaturday; break;
                     case DayOfWeek.Sunday: mask |= OlDaysOfWeek.olSunday; break;
                 }
+            }
+
+            if (!includeNonWorkingDays)
+            {
+                mask &= ~OlDaysOfWeek.olSaturday;
+                mask &= ~OlDaysOfWeek.olSunday;
             }
 
             return mask;

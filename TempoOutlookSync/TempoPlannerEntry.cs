@@ -5,6 +5,11 @@ namespace TempoOutlookSync
 {
     public sealed class TempoPlannerEntry
     {
+        private static readonly JsonSerializerOptions _options = new JsonSerializerOptions()
+        {
+            WriteIndented = true
+        };
+
         public int Id { get; }
         public DateTime Start { get; }
         public DateTime End { get; }
@@ -13,8 +18,9 @@ namespace TempoOutlookSync
         public TimeSpan DurationPerDay { get; }
         public RecurrenceRule RecurrenceRule { get; }
         public DateTime RecurrenceEnd { get; }
+        public bool IncludeNonWorkingDays { get; }
 
-        public TempoPlannerEntry(int id, DateTime start, DateTime end, string description, TimeSpan startTime, TimeSpan durationPerDay, RecurrenceRule recurrenceRule, DateTime recurrenceEnd)
+        public TempoPlannerEntry(int id, DateTime start, DateTime end, string description, TimeSpan startTime, TimeSpan durationPerDay, RecurrenceRule recurrenceRule, DateTime recurrenceEnd, bool includeWeekends)
         {
             Id = id;
             Start = start;
@@ -24,11 +30,9 @@ namespace TempoOutlookSync
             DurationPerDay = durationPerDay;
             RecurrenceRule = recurrenceRule;
             RecurrenceEnd = recurrenceEnd;
+            IncludeNonWorkingDays = includeWeekends;
         }
 
-        public override string ToString()
-        {
-            return JsonSerializer.Serialize(this);
-        }
+        public override string ToString() => JsonSerializer.Serialize(this, _options);
     }
 }
