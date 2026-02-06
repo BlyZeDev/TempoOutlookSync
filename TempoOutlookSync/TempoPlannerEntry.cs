@@ -19,8 +19,9 @@ namespace TempoOutlookSync
         public RecurrenceRule RecurrenceRule { get; }
         public DateTime RecurrenceEnd { get; }
         public bool IncludeNonWorkingDays { get; }
+        public DateTime LastUpdated { get; }
 
-        public TempoPlannerEntry(int id, DateTime start, DateTime end, string description, TimeSpan startTime, TimeSpan durationPerDay, RecurrenceRule recurrenceRule, DateTime recurrenceEnd, bool includeWeekends)
+        public TempoPlannerEntry(int id, DateTime start, DateTime end, string description, TimeSpan startTime, TimeSpan durationPerDay, RecurrenceRule recurrenceRule, DateTime recurrenceEnd, bool includeWeekends, DateTime lastUpdated)
         {
             Id = id;
             Start = start;
@@ -31,6 +32,7 @@ namespace TempoOutlookSync
             RecurrenceRule = recurrenceRule;
             RecurrenceEnd = recurrenceEnd;
             IncludeNonWorkingDays = includeWeekends;
+            LastUpdated = lastUpdated;
         }
 
         public override string ToString() => JsonSerializer.Serialize(this, _options);

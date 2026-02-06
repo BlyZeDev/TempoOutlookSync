@@ -66,8 +66,13 @@ namespace TempoOutlookSync
                     foreach (var result in results.EnumerateArray())
                     {
                         var id = result.GetProperty("id").GetInt32();
+
                         var hasDescription = result.TryGetProperty("description", out var description);
                         var hasIncludeNonWorkingDays = result.TryGetProperty("includeNonWorkingDays", out var includeNonWorkingDays);
+
+                        var lastUpdated = result.TryGetProperty("updatedAt", out var updatedAt)
+                            ? DateTimeOffset.Parse(updatedAt.GetString()).UtcDateTime
+                            : DateTimeOffset.Parse(result.GetProperty("createdAt").GetString()).UtcDateTime;
 
                         entries.Add(new TempoPlannerEntry(
                             id,
@@ -78,7 +83,8 @@ namespace TempoOutlookSync
                             TimeSpan.FromSeconds(result.GetProperty("plannedSecondsPerDay").GetInt64()),
                             ParseRecurrenceRule(result.GetProperty("rule").GetString()),
                             DateTime.ParseExact(result.GetProperty("recurrenceEndDate").GetString(), TempoDateFormat, CultureInfo.InvariantCulture),
-                            !hasIncludeNonWorkingDays || includeNonWorkingDays.GetBoolean()));
+                            !hasIncludeNonWorkingDays || includeNonWorkingDays.GetBoolean(),
+                            lastUpdated));
                     }
                 }
 

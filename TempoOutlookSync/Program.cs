@@ -1,5 +1,4 @@
-﻿using Microsoft.Office.Interop.Outlook;
-using System;
+﻿using System;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -7,7 +6,6 @@ namespace TempoOutlookSync
 {
     sealed class Program
     {
-        private const string OutlookPropertyId = "TempoId";
         private static readonly TimeSpan Interval = TimeSpan.FromMinutes(15);
 
         static async Task Main()
@@ -50,157 +48,75 @@ namespace TempoOutlookSync
                 Console.WriteLine("This window can now be minimized");
                 Console.WriteLine();
 
-                var outlook = new Application();
-
-                while (true)
+                using (var outlookClient = new OutlookClient())
                 {
-                    try
+                    while (true)
                     {
-                        Console.WriteLine("Sync started");
-
-                        var dateNow = DateTime.Now;
-                        var dateEnd = dateNow.AddYears(1);
-
-                        var items = outlook.GetNamespace("MAPI").GetDefaultFolder(OlDefaultFolders.olFolderCalendar).Items;
-                        items.IncludeRecurrences = false;
-                        items.Sort("[Start]");
-                        items = items.Restrict($"[MessageClass] = 'IPM.Appointment'");
-
-                        var existingTempoAppointments = items
-                            .OfType<AppointmentItem>()
-                            .Select(item => new
-                            {
-                                Item = item,
-                                Prop = item.UserProperties.Find(OutlookPropertyId)
-                            })
-                            .Where(x => x.Prop?.Value != null)
-                            .ToLookup(x => Convert.ToString(x.Prop.Value), x => x.Item);
-
-                        foreach (var entry in await tempoClient.GetPlannerEntriesAsync(dateNow, dateEnd))
+                        try
                         {
-                            foreach (var item in existingTempoAppointments[entry.Id.ToString()]) item.Delete();
+                            Console.WriteLine("Sync started");
 
-                            if (entry.RecurrenceRule is RecurrenceRule.Never && entry.End.Date > entry.Start.Date)
+                            var today = DateTime.Today;
+                            var todayAddYear = today.AddYears(1);
+
+                            var existingTempoAppointments = outlookClient.GetOutlookTempoAppointments(today);
+
+                            var changeCount = 0;
+                            foreach (var entry in await tempoClient.GetPlannerEntriesAsync(today, todayAddYear))
                             {
-                                for (var day = entry.Start.Date; day <= entry.End.Date; day = day.AddDays(1))
-                                {
-                                    if (!entry.IncludeNonWorkingDays && (day.DayOfWeek is DayOfWeek.Saturday || day.DayOfWeek is DayOfWeek.Sunday)) continue;
+                                var entryId = entry.Id.ToString();
+                                var needsCreation = true;
 
-                                    CreateSingle(outlook, entry, day + entry.StartTime);
+                                if (existingTempoAppointments.TryGetValue(entryId, out var appointments))
+                                {
+                                    needsCreation = appointments.Any(item => outlookClient.DeleteIfOutdated(item, entry.LastUpdated));
+                                    existingTempoAppointments.Remove(entryId);
                                 }
 
-                                continue;
-                            }
+                                if (!needsCreation) continue;
 
-                            if (entry.RecurrenceRule is RecurrenceRule.Monthly && entry.Start.Day != entry.End.Day)
-                            {
-                                for (var day = entry.Start.Date; day <= entry.End.Date; day = day.AddDays(1))
+                                changeCount++;
+                                switch (entry.RecurrenceRule)
                                 {
-                                    var monthlyStart = day + entry.StartTime;
+                                    case RecurrenceRule.Never when entry.End.Date >= entry.Start.Date:
+                                        outlookClient.SaveNonRecurring(entry);
+                                        break;
 
-                                    var monthlyAppointment = CreateBase(outlook, entry, monthlyStart);
-                                    
-                                    ApplyRecurrence(monthlyAppointment, entry, monthlyStart);
+                                    case RecurrenceRule.Weekly:
+                                    case RecurrenceRule.BiWeekly:
+                                        outlookClient.SaveWeeklyRecurring(entry);
+                                        break;
 
-                                    monthlyAppointment.Save();
+                                    case RecurrenceRule.Monthly when entry.End.Day != entry.Start.Day:
+                                        outlookClient.SaveMonthlyRecurrence(entry);
+                                        break;
+
+                                    default: changeCount--; break;
                                 }
-
-                                continue;
                             }
 
-                            var baseStart = entry.Start.Date + entry.StartTime;
-                            var appointment = CreateBase(outlook, entry, baseStart);
+                            foreach (var deletedAppointments in existingTempoAppointments.Values)
+                            {
+                                foreach (var obsoleteAppointment in deletedAppointments)
+                                {
+                                    if (obsoleteAppointment.End < today) continue;
 
-                            if (entry.RecurrenceRule is RecurrenceRule.Never) appointment.End = baseStart + entry.DurationPerDay;
-                            else ApplyRecurrence(appointment, entry, baseStart);
+                                    changeCount++;
+                                    obsoleteAppointment.Delete();
+                                }
+                            }
 
-                            appointment.Save();
+                            Console.WriteLine($"Synced {changeCount} item{(changeCount == 1 ? char.MinValue : 's')}, next sync in {Interval.TotalMinutes:F2} minutes");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex);
                         }
 
-                        Console.WriteLine($"Sync finished, next sync in {Interval.TotalMinutes:F2} minutes");
+                        await Task.Delay(Interval);
                     }
-                    catch (System.Exception ex)
-                    {
-                        Console.WriteLine(ex);
-                    }
-
-                    await Task.Delay(Interval);
                 }
             }
-        }
-
-        private static AppointmentItem CreateBase(Application outlook, TempoPlannerEntry entry, DateTime start)
-        {
-            var appointment = (AppointmentItem)outlook.CreateItem(OlItemType.olAppointmentItem);
-
-            appointment.Subject = entry.Description;
-            appointment.Body = $"[AutoImport by Jira Tempo]\n{entry.Description}";
-            appointment.Start = start;
-            appointment.BusyStatus = OlBusyStatus.olBusy;
-            appointment.ReminderSet = false;
-
-            appointment.UserProperties.Add(OutlookPropertyId, OlUserPropertyType.olText).Value = entry.Id.ToString();
-
-            return appointment;
-        }
-
-        private static void CreateSingle(Application outlook, TempoPlannerEntry entry, DateTime start)
-        {
-            var appointment = CreateBase(outlook, entry, start);
-            appointment.End = start + entry.DurationPerDay;
-            appointment.Save();
-        }
-
-        private static void ApplyRecurrence(AppointmentItem appointment, TempoPlannerEntry entry, DateTime start)
-        {
-            var recurrence = appointment.GetRecurrencePattern();
-
-            if (entry.RecurrenceRule is RecurrenceRule.Monthly)
-            {
-                recurrence.RecurrenceType = OlRecurrenceType.olRecursMonthly;
-                recurrence.DayOfMonth = entry.Start.Day;
-            }
-            else
-            {
-                recurrence.RecurrenceType = OlRecurrenceType.olRecursWeekly;
-                recurrence.Interval = entry.RecurrenceRule is RecurrenceRule.BiWeekly ? 2 : 1;
-                recurrence.DayOfWeekMask = BuildMask(entry.Start.Date, entry.End.Date, entry.IncludeNonWorkingDays);
-            }
-
-            recurrence.NoEndDate = false;
-            
-            recurrence.PatternStartDate = entry.Start.Date;
-            recurrence.PatternEndDate = entry.RecurrenceEnd.Date;
-
-            recurrence.StartTime = start;
-            recurrence.EndTime = start + entry.DurationPerDay;
-        }
-
-        private static OlDaysOfWeek BuildMask(DateTime start, DateTime end, bool includeNonWorkingDays)
-        {
-            OlDaysOfWeek mask = 0;
-
-            for (var date = start; date <= end; date = date.AddDays(1))
-            {
-                switch (date.DayOfWeek)
-                {
-                    case DayOfWeek.Monday: mask |= OlDaysOfWeek.olMonday; break;
-                    case DayOfWeek.Tuesday: mask |= OlDaysOfWeek.olTuesday; break;
-                    case DayOfWeek.Wednesday: mask |= OlDaysOfWeek.olWednesday; break;
-                    case DayOfWeek.Thursday: mask |= OlDaysOfWeek.olThursday; break;
-                    case DayOfWeek.Friday: mask |= OlDaysOfWeek.olFriday; break;
-                    case DayOfWeek.Saturday: mask |= OlDaysOfWeek.olSaturday; break;
-                    case DayOfWeek.Sunday: mask |= OlDaysOfWeek.olSunday; break;
-                }
-            }
-
-            if (!includeNonWorkingDays)
-            {
-                mask &= ~OlDaysOfWeek.olSaturday;
-                mask &= ~OlDaysOfWeek.olSunday;
-            }
-
-            return mask;
         }
     }
 }
