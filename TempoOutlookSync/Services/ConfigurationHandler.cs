@@ -20,7 +20,7 @@ public sealed class ConfigurationHandler : IDisposable
 
     public Configuration Current { get; private set; }
 
-    public event EventHandler<ConfigChangedEventArgs>? ConfigurationReload;
+    public event Action<ConfigChangedEventArgs>? ConfigurationReload;
 
     public ConfigurationHandler(ILogger logger, TempoOutlookSyncContext context)
     {
@@ -91,7 +91,7 @@ public sealed class ConfigurationHandler : IDisposable
                 Current = JsonSerializer.Deserialize(json, ConfigurationJsonContext.Default.Configuration) ?? throw new JsonException("The configuration can't be null");
             }
 
-            ConfigurationReload?.Invoke(this, new ConfigChangedEventArgs
+            ConfigurationReload?.Invoke(new ConfigChangedEventArgs
             {
                 OldConfig = oldConfig,
                 NewConfig = Current

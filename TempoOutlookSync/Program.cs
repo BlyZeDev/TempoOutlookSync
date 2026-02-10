@@ -5,6 +5,13 @@ using TempoOutlookSync.Services;
 
 sealed class Program
 {
+    public static bool IsDebug
+#if DEBUG
+        => true;
+#else
+        => false;
+#endif
+
     static void Main()
     {
         using (var provider = new ServiceProvider())

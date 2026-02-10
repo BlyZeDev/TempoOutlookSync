@@ -4,6 +4,8 @@ using DotTray;
 using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Net;
+using System.Runtime.InteropServices;
 using TempoOutlookSync.Common;
 using TempoOutlookSync.NATIVE;
 
@@ -31,18 +33,70 @@ public sealed class ServiceRunner : IDisposable
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnhandledTaskException;
 
+        var hWnd = PInvoke.GetConsoleWindow();
+        PInvoke.PostMessage(hWnd, PInvoke.WM_SETICON, PInvoke.ICON_BIG, _context.IcoHandle);
+        if (!Program.IsDebug) PInvoke.ShowWindowAsync(hWnd, PInvoke.SW_HIDE);
+
         _cts = new CancellationTokenSource();
         _icon = NotifyIcon.Run(_context.IcoHandle, _cts.Token, x =>
         {
-            x.BackgroundHoverColor = new TrayColor(187, 65, 203);
+            x.BackgroundHoverColor = new TrayColor(218, 83, 225);
             x.BackgroundDisabledColor = new TrayColor(80, 80, 80);
             x.TextDisabledColor = new TrayColor(40, 40, 40);
         });
+        _icon.FontSize = 18f;
         _icon.SetToolTip($"{nameof(TempoOutlookSync)} - Version {TempoOutlookSyncContext.Version}");
 
         _icon.MenuItems.AddItem(x =>
         {
-            x.Text = $"{nameof(TempoOutlookSync)} - Version {TempoOutlookSyncContext.Version}";
+            x.Text = "Sync now"; // To be implemented
+        });
+        _icon.MenuItems.AddItem(x =>
+        {
+            x.Text = "Next Sync in ...";// To be implemented
+            x.IsDisabled = true;
+        });
+        _icon.MenuItems.AddItem(x =>
+        {
+            x.Text = "Settings";
+            x.SubMenu.AddItem(x =>
+            {
+                x.Text = "Open Application Folder";
+                x.Clicked = _ =>
+                {
+                    _logger.LogDebug("Opening the application folder");
+                    ShellOpen(_context.ApplicationDirectory);
+                };
+            });
+            x.SubMenu.AddItem(x =>
+            {
+                x.Text = "Edit Configuration";
+                x.Clicked = _ =>
+                {
+                    _logger.LogDebug("Opening the configuration file");
+                    ShellOpen(_context.ConfigurationPath);
+                };
+            });
+            x.SubMenu.AddItem(x =>
+            {
+                x.Text = "Autostart";
+                x.IsChecked = Util.IsInStartup(nameof(TempoOutlookSync), _context.ExecutablePath);
+                x.Clicked = args =>
+                {
+                    if (Util.IsInStartup(nameof(TempoOutlookSync), _context.ExecutablePath)) Util.RemoveFromStartup(nameof(TempoOutlookSync));
+                    else Util.AddToStartup(nameof(TempoOutlookSync), _context.ExecutablePath);
+
+                    var isActivated = Util.IsInStartup(nameof(TempoOutlookSync), _context.ExecutablePath);
+                    args.MenuItem.IsChecked = isActivated;
+
+                    _logger.LogInfo($"Autostart is now {(isActivated ? "activated" : "removed")}");
+                };
+            });
+        });
+        _icon.MenuItems.AddSeparator();
+        _icon.MenuItems.AddItem(x =>
+        {
+            x.Text = $"Version {TempoOutlookSyncContext.Version}";
             x.Clicked = _ => ShellOpen($"https://github.com/BlyZeDev/{nameof(TempoOutlookSync)}");
         });
         _icon.MenuItems.AddSeparator();
@@ -55,6 +109,9 @@ public sealed class ServiceRunner : IDisposable
 
     public async Task RunAsync()
     {
+        _logger.Log += OnLog;
+        _config.ConfigurationReload += OnConfigurationReload;
+
         try
         {
             using (var timer = new PeriodicTimer(Interval))
@@ -70,9 +127,27 @@ public sealed class ServiceRunner : IDisposable
         catch (OperationCanceledException) { }
     }
 
-    public void Dispose()
+    public void Dispose() => _cts.Dispose();
+
+    private void OnLog(LogLevel logLevel, string message, Exception? exception)
     {
-        _cts.Dispose();
+        if (logLevel < LogLevel.Error) return;
+
+        _icon.ShowBalloon(new BalloonNotification
+        {
+            Icon = BalloonNotificationIcon.User,
+            Title = logLevel.ToString(),
+            Message = exception?.Message ?? message
+        });
+    }
+
+    private async void OnConfigurationReload(ConfigChangedEventArgs args)
+    {
+        if (!args.OldConfig.UserId.Equals(args.NewConfig.UserId, StringComparison.Ordinal)
+            || !args.OldConfig.ApiToken.Equals(args.NewConfig.ApiToken, StringComparison.Ordinal))
+        {
+            await PerformSync();
+        }
     }
 
     private async Task PerformSync()
@@ -134,6 +209,10 @@ public sealed class ServiceRunner : IDisposable
             }
 
             _logger.LogInfo($"Synced {changeCount} item{(changeCount == 1 ? char.MinValue : 's')}, next sync in {Interval.TotalMinutes:F2} minutes");
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized)
+        {
+            _logger.LogError("Could not authorize, please check your credentials in the configuration", null);
         }
         catch (Exception ex)
         {

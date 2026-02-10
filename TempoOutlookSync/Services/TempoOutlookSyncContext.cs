@@ -65,8 +65,6 @@ public sealed class TempoOutlookSyncContext : IDisposable
 
         LogDirectory = Path.Combine(AppFilesDirectory, "Logs");
         Directory.CreateDirectory(LogDirectory);
-
-        PInvoke.PostMessage(PInvoke.GetConsoleWindow(), PInvoke.WM_SETICON, PInvoke.ICON_BIG, IcoHandle);
     }
 
     public string GetTempPath(string fileExtension)
