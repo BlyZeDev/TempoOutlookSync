@@ -21,6 +21,10 @@ public sealed class ServiceRunner : IDisposable
 
     private readonly CancellationTokenSource _cts;
     private readonly NotifyIcon _icon;
+    private readonly MenuItem _nextSyncMenuItem;
+
+    private long nextSyncTicks; // TODO
+    private bool isSyncing;
 
     public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoClient tempo, OutlookClient outlook)
     {
@@ -41,19 +45,22 @@ public sealed class ServiceRunner : IDisposable
         _icon = NotifyIcon.Run(_context.IcoHandle, _cts.Token, x =>
         {
             x.BackgroundHoverColor = new TrayColor(218, 83, 225);
-            x.BackgroundDisabledColor = new TrayColor(80, 80, 80);
-            x.TextDisabledColor = new TrayColor(40, 40, 40);
+            x.BackgroundDisabledColor = new TrayColor(40, 40, 40);
+            x.TextDisabledColor = new TrayColor(180, 180, 180);
+        }, x =>
+        {
+            x.LineThickness = 1.2f;
         });
         _icon.FontSize = 18f;
         _icon.SetToolTip($"{nameof(TempoOutlookSync)} - Version {TempoOutlookSyncContext.Version}");
 
         _icon.MenuItems.AddItem(x =>
         {
-            x.Text = "Sync now"; // To be implemented
+            x.Text = "Sync now"; // TODO
         });
-        _icon.MenuItems.AddItem(x =>
+        _nextSyncMenuItem = _icon.MenuItems.AddItem(x =>
         {
-            x.Text = "Next Sync in ...";// To be implemented
+            x.Text = "Next Sync in ...";// TODO
             x.IsDisabled = true;
         });
         _icon.MenuItems.AddItem(x =>
@@ -111,7 +118,7 @@ public sealed class ServiceRunner : IDisposable
     {
         _logger.Log += OnLog;
         _config.ConfigurationReload += OnConfigurationReload;
-
+        
         try
         {
             using (var timer = new PeriodicTimer(Interval))
@@ -127,7 +134,11 @@ public sealed class ServiceRunner : IDisposable
         catch (OperationCanceledException) { }
     }
 
-    public void Dispose() => _cts.Dispose();
+    public void Dispose()
+    {
+        _icon.Dispose();
+        _cts.Dispose();
+    }
 
     private void OnLog(LogLevel logLevel, string message, Exception? exception)
     {
@@ -144,14 +155,13 @@ public sealed class ServiceRunner : IDisposable
     private async void OnConfigurationReload(ConfigChangedEventArgs args)
     {
         if (!args.OldConfig.UserId.Equals(args.NewConfig.UserId, StringComparison.Ordinal)
-            || !args.OldConfig.ApiToken.Equals(args.NewConfig.ApiToken, StringComparison.Ordinal))
-        {
-            await PerformSync();
-        }
+            || !args.OldConfig.ApiToken.Equals(args.NewConfig.ApiToken, StringComparison.Ordinal)) await PerformSync();
     }
 
     private async Task PerformSync()
     {
+        if (Interlocked.Exchange(ref isSyncing, true)) return;
+
         try
         {
             await _tempo.ThrowIfCantConnect();
@@ -217,6 +227,10 @@ public sealed class ServiceRunner : IDisposable
         catch (Exception ex)
         {
             _logger.LogError("Sync failed", ex);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref isSyncing, false);
         }
     }
 
