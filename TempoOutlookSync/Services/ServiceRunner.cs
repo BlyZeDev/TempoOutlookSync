@@ -21,8 +21,11 @@ public sealed class ServiceRunner : IDisposable
 
     private readonly CancellationTokenSource _cts;
     private readonly NotifyIcon _icon;
+    private readonly MenuItem _syncNowMenuItem;
     private readonly MenuItem _nextSyncMenuItem;
 
+    private CancellationTokenSource manualSyncCts;
+    private DateTime lastSyncUtc;
     private bool isSyncing;
 
     public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoClient tempo, OutlookClient outlook)
@@ -50,17 +53,20 @@ public sealed class ServiceRunner : IDisposable
         {
             x.LineThickness = 1.2f;
         });
-        _icon.FontSize = 18f;
+        _icon.FontSize = 16f;
         _icon.SetToolTip($"{nameof(TempoOutlookSync)} - Version {TempoOutlookSyncContext.Version}");
+        _icon.PopupShowing += OnPopupShowing;
 
-        _icon.MenuItems.AddItem(x =>
+        manualSyncCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+
+        _syncNowMenuItem = _icon.MenuItems.AddItem(x =>
         {
             x.Text = "Sync now";
-            x.Clicked = async _ => await PerformManualSyncAsync();
+            x.Clicked = _ => manualSyncCts.Cancel();
         });
         _nextSyncMenuItem = _icon.MenuItems.AddItem(x =>
         {
-            x.Text = "Next Sync: ";
+            x.Text = $"Next Sync - {(int)Math.Round(Interval.TotalMinutes, 0)}min";
             x.IsDisabled = true;
         });
         _icon.MenuItems.AddItem(x =>
@@ -72,7 +78,7 @@ public sealed class ServiceRunner : IDisposable
                 x.Clicked = _ =>
                 {
                     _logger.LogDebug("Opening the application folder");
-                    ShellOpen(_context.ApplicationDirectory);
+                    Util.ShellOpen(_context.AppFilesDirectory);
                 };
             });
             x.SubMenu.AddItem(x =>
@@ -81,7 +87,7 @@ public sealed class ServiceRunner : IDisposable
                 x.Clicked = _ =>
                 {
                     _logger.LogDebug("Opening the configuration file");
-                    ShellOpen(_context.ConfigurationPath);
+                    Util.ShellOpen(_context.ConfigurationPath);
                 };
             });
             x.SubMenu.AddItem(x =>
@@ -104,7 +110,7 @@ public sealed class ServiceRunner : IDisposable
         _icon.MenuItems.AddItem(x =>
         {
             x.Text = $"Version {TempoOutlookSyncContext.Version}";
-            x.Clicked = _ => ShellOpen($"https://github.com/BlyZeDev/{nameof(TempoOutlookSync)}");
+            x.Clicked = _ => Util.ShellOpen($"https://github.com/BlyZeDev/{nameof(TempoOutlookSync)}");
         });
         _icon.MenuItems.AddSeparator();
         _icon.MenuItems.AddItem(x =>
@@ -118,19 +124,33 @@ public sealed class ServiceRunner : IDisposable
     {
         _logger.Log += OnLog;
         _config.ConfigurationReload += OnConfigurationReload;
-        
-        try
+
+        while (!_cts.IsCancellationRequested)
         {
-            //TODO
+            lastSyncUtc = DateTime.UtcNow;
+
+            manualSyncCts.Dispose();
+            manualSyncCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+
+            await SyncTempoToOutlookAsync();
+
+            try
+            {
+                await Task.Delay(Interval, manualSyncCts.Token);
+            }
+            catch (OperationCanceledException) { }
         }
-        catch (OperationCanceledException) { }
     }
 
     public void Dispose()
     {
         _icon.Dispose();
+        manualSyncCts.Dispose();
         _cts.Dispose();
     }
+
+    private void OnPopupShowing(MouseButton mouseButton)
+        => _nextSyncMenuItem.Text = $"Next Sync - {(int)Math.Round(GetRemainingUntilSync(lastSyncUtc).TotalMinutes, 0)}min";
 
     private void OnLog(LogLevel logLevel, string message, Exception? exception)
     {
@@ -144,15 +164,16 @@ public sealed class ServiceRunner : IDisposable
         });
     }
 
-    private async void OnConfigurationReload(ConfigChangedEventArgs args)
+    private void OnConfigurationReload(ConfigChangedEventArgs args)
     {
         if (!args.OldConfig.UserId.Equals(args.NewConfig.UserId, StringComparison.Ordinal)
-            || !args.OldConfig.ApiToken.Equals(args.NewConfig.ApiToken, StringComparison.Ordinal)) await PerformManualSyncAsync();
+            || !args.OldConfig.ApiToken.Equals(args.NewConfig.ApiToken, StringComparison.Ordinal)) manualSyncCts.Cancel();
     }
 
     private async Task SyncTempoToOutlookAsync()
     {
         if (Interlocked.Exchange(ref isSyncing, true)) return;
+        _syncNowMenuItem.IsDisabled = true;
 
         try
         {
@@ -223,6 +244,7 @@ public sealed class ServiceRunner : IDisposable
         finally
         {
             Interlocked.Exchange(ref isSyncing, false);
+            _syncNowMenuItem.IsDisabled = false;
         }
     }
 
@@ -244,16 +266,9 @@ public sealed class ServiceRunner : IDisposable
         Environment.FailFast(exception.Message, exception);
     }
 
-    private static void ShellOpen(string fileName)
+    private static TimeSpan GetRemainingUntilSync(DateTime lastSyncUtc)
     {
-        using (var process = new Process())
-        {
-            process.StartInfo = new ProcessStartInfo
-            {
-                UseShellExecute = true,
-                FileName = fileName
-            };
-            process.Start();
-        }
+        var remaining = Interval - (DateTime.UtcNow - lastSyncUtc);
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 }

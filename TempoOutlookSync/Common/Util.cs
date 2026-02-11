@@ -1,12 +1,26 @@
 ﻿namespace TempoOutlookSync.Common;
 
 using Microsoft.Win32;
+using System.Diagnostics;
 
 public static class Util
 {
     private const string StartupRegistryKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
     public static string GetFileNameTimestamp() => $"{DateTime.UtcNow:yyyyMMddHHmmssff}Z";
+
+    public static void ShellOpen(string fileName)
+    {
+        using (var process = new Process())
+        {
+            process.StartInfo = new ProcessStartInfo
+            {
+                UseShellExecute = true,
+                FileName = fileName
+            };
+            process.Start();
+        }
+    }
 
     public static bool IsInStartup(string name, string path)
     {
