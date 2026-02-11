@@ -23,7 +23,6 @@ public sealed class ServiceRunner : IDisposable
     private readonly NotifyIcon _icon;
     private readonly MenuItem _nextSyncMenuItem;
 
-    private long nextSyncTicks; // TODO
     private bool isSyncing;
 
     public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoClient tempo, OutlookClient outlook)
@@ -56,11 +55,12 @@ public sealed class ServiceRunner : IDisposable
 
         _icon.MenuItems.AddItem(x =>
         {
-            x.Text = "Sync now"; // TODO
+            x.Text = "Sync now";
+            x.Clicked = async _ => await PerformManualSyncAsync();
         });
         _nextSyncMenuItem = _icon.MenuItems.AddItem(x =>
         {
-            x.Text = "Next Sync in ...";// TODO
+            x.Text = "Next Sync: ";
             x.IsDisabled = true;
         });
         _icon.MenuItems.AddItem(x =>
@@ -121,15 +121,7 @@ public sealed class ServiceRunner : IDisposable
         
         try
         {
-            using (var timer = new PeriodicTimer(Interval))
-            {
-                await PerformSync();
-
-                while (await timer.WaitForNextTickAsync(_cts.Token))
-                {
-                    await PerformSync();
-                }
-            }
+            //TODO
         }
         catch (OperationCanceledException) { }
     }
@@ -155,10 +147,10 @@ public sealed class ServiceRunner : IDisposable
     private async void OnConfigurationReload(ConfigChangedEventArgs args)
     {
         if (!args.OldConfig.UserId.Equals(args.NewConfig.UserId, StringComparison.Ordinal)
-            || !args.OldConfig.ApiToken.Equals(args.NewConfig.ApiToken, StringComparison.Ordinal)) await PerformSync();
+            || !args.OldConfig.ApiToken.Equals(args.NewConfig.ApiToken, StringComparison.Ordinal)) await PerformManualSyncAsync();
     }
 
-    private async Task PerformSync()
+    private async Task SyncTempoToOutlookAsync()
     {
         if (Interlocked.Exchange(ref isSyncing, true)) return;
 
