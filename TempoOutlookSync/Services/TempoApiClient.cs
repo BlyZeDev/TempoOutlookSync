@@ -4,18 +4,21 @@ using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using TempoOutlookSync.Common;
+using TempoOutlookSync.Dto;
 
-public sealed class TempoClient : IDisposable
+public sealed class TempoApiClient : IDisposable
 {
     private const string BaseApiUrl = "https://api.tempo.io/4";
     public const string TempoDateFormat = "yyyy-MM-dd";
 
+    private readonly ILogger _logger;
     private readonly ConfigurationHandler _config;
 
     private readonly HttpClient _client;
 
-    public TempoClient(ConfigurationHandler config)
+    public TempoApiClient(ILogger logger, ConfigurationHandler config)
     {
+        _logger = logger;
         _config = config;
 
         _client = new HttpClient()
@@ -26,6 +29,7 @@ public sealed class TempoClient : IDisposable
 
     public async Task ThrowIfCantConnect()
     {
+        SetHeaders(_client, _config.Current);
         using (var response = await _client.GetAsync(BuildTempoPlannerUrl(DateTime.Now, DateTime.Now.AddDays(1), _config.Current)))
         {
             response.EnsureSuccessStatusCode();
@@ -38,6 +42,7 @@ public sealed class TempoClient : IDisposable
 
         try
         {
+            SetHeaders(_client, _config.Current);
             using (var response = await _client.GetAsync(BuildTempoPlannerUrl(startDate, endDate, _config.Current)))
             {
                 response.EnsureSuccessStatusCode();
@@ -50,7 +55,7 @@ public sealed class TempoClient : IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine(ex);
+            _logger.LogError(ex.Message, ex);
             yield break;
         }
 
@@ -62,14 +67,14 @@ public sealed class TempoClient : IDisposable
 
     public void Dispose() => _client.Dispose();
 
-    private static void SetRequiredHeaders(HttpClient client, Configuration config)
+    private static void SetHeaders(HttpClient client, Configuration config)
     {
         client.DefaultRequestHeaders.Accept.Clear();
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json")
         {
             CharSet = "utf-8"
         });
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", config.TempoApiToken);
     }
 
     private static string BuildTempoPlannerUrl(DateTime startDate, DateTime endDate, Configuration config)

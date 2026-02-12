@@ -1,6 +1,7 @@
 ﻿namespace TempoOutlookSync.Common;
 
 using Microsoft.Win32;
+using System.ComponentModel;
 using System.Diagnostics;
 
 public static class Util

@@ -4,7 +4,6 @@ using System.Drawing;
 using System.Reflection;
 using System.Text;
 using TempoOutlookSync.Common;
-using TempoOutlookSync.NATIVE;
 
 public sealed class TempoOutlookSyncContext : IDisposable
 {
@@ -31,7 +30,7 @@ public sealed class TempoOutlookSyncContext : IDisposable
     /// <summary>
     /// The handle to the to application icon
     /// </summary>
-    public nint IcoHandle { get; }
+    public string IcoPath { get; }
 
     /// <summary>
     /// The path to the configuration
@@ -58,8 +57,7 @@ public sealed class TempoOutlookSyncContext : IDisposable
         if (!File.Exists(icoPath)) icoPath = CreateFallbackIco();
         if (!File.Exists(icoPath)) throw new ApplicationException("No icon could be created");
 
-        IcoHandle = GetIcoHandle(icoPath);
-        if (IcoHandle == nint.Zero) throw new ApplicationException("No icon could be found");
+        IcoPath = icoPath;
 
         ConfigurationPath = Path.Combine(AppFilesDirectory, ConfigFileName);
 
@@ -147,33 +145,16 @@ public sealed class TempoOutlookSyncContext : IDisposable
 
     private string? CreateFallbackIco()
     {
-        const int FallbackIconIndex = 0;
-
         var tempPath = GetTempPath(".ico");
 
-        var iconHandle = PInvoke.ExtractIcon(nint.Zero, Path.Combine(Environment.SystemDirectory, "imageres.dll"), FallbackIconIndex);
-        using (var icon = iconHandle == nint.Zero ? SystemIcons.GetStockIcon(StockIconId.Error, StockIconOptions.SmallIcon) : Icon.FromHandle(iconHandle))
+        using (var icon = SystemIcons.GetStockIcon(StockIconId.Error, StockIconOptions.SmallIcon))
         {
-            if (icon is null) return null;
-
             using (var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
             {
                 icon.Save(fileStream);
-                fileStream.Flush();
             }
         }
 
         return tempPath;
-    }
-
-    private static unsafe nint GetIcoHandle(string icoPath)
-    {
-        var smallIcon = stackalloc nint[1];
-        var largeIcon = stackalloc nint[1];
-
-        _ = PInvoke.ExtractIconEx(icoPath, 0, largeIcon, smallIcon, 1);
-
-        var icoHandle = largeIcon[0];
-        return icoHandle == nint.Zero ? smallIcon[0] : icoHandle;
     }
 }

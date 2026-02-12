@@ -4,8 +4,10 @@ using System.Text.Json.Serialization;
 
 public sealed class Configuration
 {
-    public required string ApiToken { get; init; }
+    public required string Email { get; init; }
+    public required string JiraApiToken { get; init; }
     public required string UserId { get; init; }
+    public required string TempoApiToken { get; init; }
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]

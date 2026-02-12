@@ -1,4 +1,4 @@
-﻿namespace TempoOutlookSync.Common;
+﻿namespace TempoOutlookSync.Dto;
 
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;

@@ -10,6 +10,6 @@ using Jab;
 [Singleton<ILogger, LoggerForwarder>]
 [Singleton<TempoOutlookSyncContext>]
 [Singleton<ConfigurationHandler>]
-[Singleton<TempoClient>]
+[Singleton<TempoApiClient>]
 [Singleton<OutlookClient>]
 public sealed partial class ServiceProvider;

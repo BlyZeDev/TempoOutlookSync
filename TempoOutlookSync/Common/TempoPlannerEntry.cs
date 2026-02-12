@@ -3,6 +3,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TempoOutlookSync.Dto;
 using TempoOutlookSync.Services;
 
 public sealed class TempoPlannerEntry
@@ -30,12 +31,12 @@ public sealed class TempoPlannerEntry
 
         Start = DateTime.ParseExact(
             dto.StartDate ?? throw new JsonException("startDate missing"),
-            TempoClient.TempoDateFormat,
+            TempoApiClient.TempoDateFormat,
             CultureInfo.InvariantCulture);
 
         End = DateTime.ParseExact(
             dto.EndDate ?? throw new JsonException("endDate missing"),
-            TempoClient.TempoDateFormat,
+            TempoApiClient.TempoDateFormat,
             CultureInfo.InvariantCulture);
 
         Description = dto.Description ?? $"Issue #{Id}";
@@ -52,7 +53,7 @@ public sealed class TempoPlannerEntry
 
         RecurrenceEnd = DateTime.ParseExact(
             dto.RecurrenceEndDate ?? throw new JsonException("recurrenceEndDate missing"),
-            TempoClient.TempoDateFormat,
+            TempoApiClient.TempoDateFormat,
             CultureInfo.InvariantCulture);
 
         IncludeNonWorkingDays = dto.IncludeNonWorkingDays ?? true;

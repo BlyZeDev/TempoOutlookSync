@@ -10,8 +10,10 @@ public sealed class ConfigurationHandler : IDisposable
 {
     private static readonly Configuration _defaultConfig = new Configuration
     {
+        Email = "",
+        JiraApiToken = "",
         UserId = "",
-        ApiToken = ""
+        TempoApiToken = ""
     };
 
     private readonly TempoOutlookSyncContext _context;

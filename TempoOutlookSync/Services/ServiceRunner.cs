@@ -7,7 +7,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Runtime.InteropServices;
 using TempoOutlookSync.Common;
-using TempoOutlookSync.NATIVE;
 
 public sealed class ServiceRunner : IDisposable
 {
@@ -16,7 +15,7 @@ public sealed class ServiceRunner : IDisposable
     private readonly ILogger _logger;
     private readonly TempoOutlookSyncContext _context;
     private readonly ConfigurationHandler _config;
-    private readonly TempoClient _tempo;
+    private readonly TempoApiClient _tempo;
     private readonly OutlookClient _outlook;
 
     private readonly CancellationTokenSource _cts;
@@ -25,10 +24,10 @@ public sealed class ServiceRunner : IDisposable
     private readonly MenuItem _nextSyncMenuItem;
 
     private CancellationTokenSource manualSyncCts;
-    private DateTime lastSyncUtc;
+    private long lastSyncUtcBinary;
     private bool isSyncing;
 
-    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoClient tempo, OutlookClient outlook)
+    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoApiClient tempo, OutlookClient outlook)
     {
         _logger = logger;
         _context = context;
@@ -39,12 +38,8 @@ public sealed class ServiceRunner : IDisposable
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnhandledTaskException;
 
-        var hWnd = PInvoke.GetConsoleWindow();
-        PInvoke.PostMessage(hWnd, PInvoke.WM_SETICON, PInvoke.ICON_BIG, _context.IcoHandle);
-        if (!Program.IsDebug) PInvoke.ShowWindowAsync(hWnd, PInvoke.SW_HIDE);
-
         _cts = new CancellationTokenSource();
-        _icon = NotifyIcon.Run(_context.IcoHandle, _cts.Token, x =>
+        _icon = NotifyIcon.Run(_context.IcoPath, _cts.Token, x =>
         {
             x.BackgroundHoverColor = new TrayColor(218, 83, 225);
             x.BackgroundDisabledColor = new TrayColor(40, 40, 40);
@@ -122,13 +117,19 @@ public sealed class ServiceRunner : IDisposable
 
     public async Task RunAsync()
     {
+        _logger.LogLevel = LogLevel.Debug;
         _logger.Log += OnLog;
         _config.ConfigurationReload += OnConfigurationReload;
 
+        _icon.ShowBalloon(new BalloonNotification
+        {
+            Icon = BalloonNotificationIcon.User,
+            Title = $"{nameof(TempoOutlookSync)} is now running",
+            Message = "This application runs in the background and synchronizes the Tempo Capacity Planner into the Outlook calendar regularly."
+        });
+
         while (!_cts.IsCancellationRequested)
         {
-            lastSyncUtc = DateTime.UtcNow;
-
             manualSyncCts.Dispose();
             manualSyncCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
 
@@ -150,7 +151,7 @@ public sealed class ServiceRunner : IDisposable
     }
 
     private void OnPopupShowing(MouseButton mouseButton)
-        => _nextSyncMenuItem.Text = $"Next Sync - {(int)Math.Round(GetRemainingUntilSync(lastSyncUtc).TotalMinutes, 0)}min";
+        => _nextSyncMenuItem.Text = $"Next Sync - {(int)Math.Round(GetRemainingUntilSync(lastSyncUtcBinary).TotalMinutes, 0)}min";
 
     private void OnLog(LogLevel logLevel, string message, Exception? exception)
     {
@@ -167,7 +168,7 @@ public sealed class ServiceRunner : IDisposable
     private void OnConfigurationReload(ConfigChangedEventArgs args)
     {
         if (!args.OldConfig.UserId.Equals(args.NewConfig.UserId, StringComparison.Ordinal)
-            || !args.OldConfig.ApiToken.Equals(args.NewConfig.ApiToken, StringComparison.Ordinal)) manualSyncCts.Cancel();
+            || !args.OldConfig.TempoApiToken.Equals(args.NewConfig.TempoApiToken, StringComparison.Ordinal)) manualSyncCts.Cancel();
     }
 
     private async Task SyncTempoToOutlookAsync()
@@ -181,7 +182,7 @@ public sealed class ServiceRunner : IDisposable
 
             _logger.LogInfo("Sync started");
 
-            var today = DateTime.Today;
+            var today = DateTime.Today.AddDays(-7);
             var todayAddYear = today.AddYears(1);
 
             var existingTempoAppointments = _outlook.GetOutlookTempoAppointments(today);
@@ -194,7 +195,13 @@ public sealed class ServiceRunner : IDisposable
 
                 if (existingTempoAppointments.TryGetValue(entryId, out var appointments))
                 {
-                    needsCreation = appointments.Any(item => _outlook.DeleteIfOutdated(item, entry.LastUpdated));
+                    needsCreation = false;
+
+                    foreach (var item in appointments)
+                    {
+                        needsCreation |= _outlook.DeleteIfOutdated(item, entry.LastUpdated);
+                    }
+
                     existingTempoAppointments.Remove(entryId);
                 }
 
@@ -231,7 +238,7 @@ public sealed class ServiceRunner : IDisposable
                 }
             }
 
-            _logger.LogInfo($"Synced {changeCount} item{(changeCount == 1 ? char.MinValue : 's')}, next sync in {Interval.TotalMinutes:F2} minutes");
+            _logger.LogInfo($"Synced {changeCount} item(s), next sync in {Interval.TotalMinutes:F2} minutes");
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized)
         {
@@ -243,6 +250,7 @@ public sealed class ServiceRunner : IDisposable
         }
         finally
         {
+            Interlocked.Exchange(ref lastSyncUtcBinary, DateTime.UtcNow.ToBinary());
             Interlocked.Exchange(ref isSyncing, false);
             _syncNowMenuItem.IsDisabled = false;
         }
@@ -266,9 +274,9 @@ public sealed class ServiceRunner : IDisposable
         Environment.FailFast(exception.Message, exception);
     }
 
-    private static TimeSpan GetRemainingUntilSync(DateTime lastSyncUtc)
+    private static TimeSpan GetRemainingUntilSync(long lastSyncUtcBinary)
     {
-        var remaining = Interval - (DateTime.UtcNow - lastSyncUtc);
+        var remaining = Interval - (DateTime.UtcNow - DateTime.FromBinary(lastSyncUtcBinary));
         return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 }
