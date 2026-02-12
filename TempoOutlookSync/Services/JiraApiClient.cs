@@ -25,6 +25,8 @@ public sealed class JiraApiClient : IDisposable
         };
     }
 
+    //GetIssueById
+
     public void Dispose() => _client.Dispose();
 
     private static void SetHeaders(HttpClient client, Configuration config)
