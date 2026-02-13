@@ -2,18 +2,20 @@
 
 using Microsoft.Office.Interop.Outlook;
 using System.Runtime.InteropServices;
-using TempoOutlookSync.Common;
+using System.Text;
+using TempoOutlookSync.Models;
 
 public sealed class OutlookClient : IDisposable
 {
     private const string OutlookTempoIdProperty = "TempoId";
     private const string OutlookTempoUpdatedProperty = "TempoUpdated";
+    private const string OutlookJiraUpdatedProperty = "JiraUpdated";
 
     private readonly Application _outlook;
 
     public OutlookClient() => _outlook = new Application();
 
-    public Dictionary<string, HashSet<AppointmentItem>> GetOutlookTempoAppointments(DateTime start)
+    public Dictionary<int, HashSet<AppointmentItem>> GetOutlookTempoAppointments(DateTime start)
     {
         var items = _outlook.GetNamespace("MAPI").GetDefaultFolder(OlDefaultFolders.olFolderCalendar).Items;
         items.IncludeRecurrences = false;
@@ -27,22 +29,24 @@ public sealed class OutlookClient : IDisposable
                 TempoId = item.UserProperties.Find(OutlookTempoIdProperty)
             })
             .Where(x => x.TempoId?.Value is not null)
-            .GroupBy(x => (string)Convert.ToString(x.TempoId.Value))
+            .GroupBy(x => (int)int.Parse(x.TempoId.Value))
             .ToDictionary(key => key.Key, value => new HashSet<AppointmentItem>(value.Select(x => x.Item)));
     }
 
-    public bool DeleteIfOutdated(AppointmentItem appointment, DateTime latestUpdate)
+    public bool DeleteIfOutdated(AppointmentItem appointment, DateTime latestTempoUpdate, DateTime latestJiraUpdate)
     {
-        var property = appointment.UserProperties.Find(OutlookTempoUpdatedProperty)?.Value;
+        var tempoUpdated = appointment.UserProperties.Find(OutlookTempoUpdatedProperty)?.Value;
+        var jiraUpdated = appointment.UserProperties.Find(OutlookJiraUpdatedProperty)?.Value;
 
-        if (property == null)
+        if (tempoUpdated is null || jiraUpdated is null)
         {
             appointment.Delete();
             return true;
         }
 
-        var lastUpdated = ((DateTimeOffset)DateTimeOffset.Parse(property)).UtcDateTime;
-        if (lastUpdated < latestUpdate)
+        var lastTempoUpdate = ((DateTimeOffset)DateTimeOffset.Parse(tempoUpdated)).UtcDateTime;
+        var lastJiraUpdate = ((DateTimeOffset)DateTimeOffset.Parse(jiraUpdated)).UtcDateTime;
+        if (lastTempoUpdate < latestTempoUpdate || lastJiraUpdate < latestJiraUpdate)
         {
             appointment.Delete();
             return true;
@@ -50,33 +54,33 @@ public sealed class OutlookClient : IDisposable
         else return false;
     }
 
-    public void SaveNonRecurring(TempoPlannerEntry entry)
+    public void SaveNonRecurring(OutlookAppointmentInfo info)
     {
-        for (var day = entry.Start.Date; day <= entry.End.Date; day = day.AddDays(1))
+        for (var day = info.TempoEntry.Start.Date; day <= info.TempoEntry.End.Date; day = day.AddDays(1))
         {
-            if (!entry.IncludeNonWorkingDays && (day.DayOfWeek is DayOfWeek.Saturday || day.DayOfWeek is DayOfWeek.Sunday)) continue;
+            if (!info.TempoEntry.IncludeNonWorkingDays && (day.DayOfWeek is DayOfWeek.Saturday || day.DayOfWeek is DayOfWeek.Sunday)) continue;
 
-            CreateSingle(_outlook, entry, day + entry.StartTime);
+            CreateSingle(_outlook, info, day + info.TempoEntry.StartTime);
         }
     }
 
-    public void SaveWeeklyRecurring(TempoPlannerEntry entry)
+    public void SaveWeeklyRecurring(OutlookAppointmentInfo info)
     {
-        var baseStart = entry.Start.Date + entry.StartTime;
-        var appointment = CreateBase(_outlook, entry, baseStart);
-        ApplyRecurrence(appointment, entry, baseStart);
+        var baseStart = info.TempoEntry.Start.Date + info.TempoEntry.StartTime;
+        var appointment = CreateBase(_outlook, info, baseStart);
+        ApplyRecurrence(appointment, info, baseStart);
         appointment.Save();
     }
 
-    public void SaveMonthlyRecurrence(TempoPlannerEntry entry)
+    public void SaveMonthlyRecurrence(OutlookAppointmentInfo info)
     {
-        for (var day = entry.Start.Date; day <= entry.End.Date; day = day.AddDays(1))
+        for (var day = info.TempoEntry.Start.Date; day <= info.TempoEntry.End.Date; day = day.AddDays(1))
         {
-            var monthlyStart = day + entry.StartTime;
+            var monthlyStart = day + info.TempoEntry.StartTime;
 
-            var monthlyAppointment = CreateBase(_outlook, entry, monthlyStart);
+            var monthlyAppointment = CreateBase(_outlook, info, monthlyStart);
 
-            ApplyRecurrence(monthlyAppointment, entry, monthlyStart);
+            ApplyRecurrence(monthlyAppointment, info, monthlyStart);
 
             monthlyAppointment.Save();
         }
@@ -87,52 +91,56 @@ public sealed class OutlookClient : IDisposable
         Marshal.ReleaseComObject(_outlook);
     }
 
-    private static AppointmentItem CreateBase(Application outlook, TempoPlannerEntry entry, DateTime start)
+    private static AppointmentItem CreateBase(Application outlook, OutlookAppointmentInfo info, DateTime start)
     {
         var appointment = (AppointmentItem)outlook.CreateItem(OlItemType.olAppointmentItem);
 
-        appointment.Subject = entry.Description;
-        appointment.Body = $"[AutoImport by Jira Tempo]\n{entry.Description}";
+        appointment.Subject = GetSubject(info);
+        appointment.BodyFormat = OlBodyFormat.olFormatRichText;
+        appointment.Body = BuildAppointmentRichText(info);
         appointment.Start = start;
         appointment.BusyStatus = OlBusyStatus.olBusy;
         appointment.ReminderSet = false;
 
-        appointment.UserProperties.Add(OutlookTempoIdProperty, OlUserPropertyType.olText, true).Value = entry.Id.ToString();
-        appointment.UserProperties.Add(OutlookTempoUpdatedProperty, OlUserPropertyType.olText, true).Value = entry.LastUpdated.ToString("O");
+        appointment.UserProperties.Add(OutlookTempoIdProperty, OlUserPropertyType.olText, true).Value = info.TempoEntry.Id.ToString();
+        appointment.UserProperties.Add(OutlookTempoUpdatedProperty, OlUserPropertyType.olText, true).Value = info.TempoEntry.LastUpdated.ToString("O");
+
+        if (info.JiraIssue is not null)
+            appointment.UserProperties.Add(OutlookJiraUpdatedProperty, OlUserPropertyType.olText, true).Value = info.JiraIssue.LastUpdated.ToString("O");
 
         return appointment;
     }
 
-    private static void CreateSingle(Application outlook, TempoPlannerEntry entry, DateTime start)
+    private static void CreateSingle(Application outlook, OutlookAppointmentInfo info, DateTime start)
     {
-        var appointment = CreateBase(outlook, entry, start);
-        appointment.End = start + entry.DurationPerDay;
+        var appointment = CreateBase(outlook, info, start);
+        appointment.End = start + info.TempoEntry.DurationPerDay;
         appointment.Save();
     }
 
-    private static void ApplyRecurrence(AppointmentItem appointment, TempoPlannerEntry entry, DateTime start)
+    private static void ApplyRecurrence(AppointmentItem appointment, OutlookAppointmentInfo info, DateTime start)
     {
         var recurrence = appointment.GetRecurrencePattern();
 
-        if (entry.RecurrenceRule is RecurrenceRule.Monthly)
+        if (info.TempoEntry.RecurrenceRule is TempoRecurrenceRule.Monthly)
         {
             recurrence.RecurrenceType = OlRecurrenceType.olRecursMonthly;
-            recurrence.DayOfMonth = entry.Start.Day;
+            recurrence.DayOfMonth = info.TempoEntry.Start.Day;
         }
         else
         {
             recurrence.RecurrenceType = OlRecurrenceType.olRecursWeekly;
-            recurrence.Interval = entry.RecurrenceRule is RecurrenceRule.BiWeekly ? 2 : 1;
-            recurrence.DayOfWeekMask = BuildMask(entry.Start.Date, entry.End.Date, entry.IncludeNonWorkingDays);
+            recurrence.Interval = info.TempoEntry.RecurrenceRule is TempoRecurrenceRule.BiWeekly ? 2 : 1;
+            recurrence.DayOfWeekMask = BuildMask(info.TempoEntry.Start.Date, info.TempoEntry.End.Date, info.TempoEntry.IncludeNonWorkingDays);
         }
 
         recurrence.NoEndDate = false;
 
-        recurrence.PatternStartDate = entry.Start.Date;
-        recurrence.PatternEndDate = entry.RecurrenceEnd.Date;
+        recurrence.PatternStartDate = info.TempoEntry.Start.Date;
+        recurrence.PatternEndDate = info.TempoEntry.RecurrenceEnd.Date;
 
         recurrence.StartTime = start;
-        recurrence.EndTime = start + entry.DurationPerDay;
+        recurrence.EndTime = start + info.TempoEntry.DurationPerDay;
     }
 
     private static OlDaysOfWeek BuildMask(DateTime start, DateTime end, bool includeNonWorkingDays)
@@ -161,4 +169,30 @@ public sealed class OutlookClient : IDisposable
 
         return mask;
     }
+
+    private static string BuildAppointmentRichText(OutlookAppointmentInfo info)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine(@"{\rtf1\ansi\deff0");
+        sb.AppendLine(@"{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}{\f1\fnil\fcharset0 Calibri;}}");
+        sb.AppendLine(@"{\colortbl ;\red46\green134\blue193;\red128\green128\blue128;}");
+        sb.AppendLine(@"\f0\fs22\cf2\i This appointment was auto-imported from Jira Tempo.\i0\par");
+        sb.AppendLine($@"\fs28\cf1 {GetSubject(info)}\fs22\cf0\par");
+
+        if (info.JiraIssue is not null)
+        {
+            if (info.JiraIssue.Summary is not null) sb.AppendLine($@"\b Description:\b0\par {info.JiraIssue.Summary}\par");
+
+            sb.AppendLine($@"\b Jira Url:\b0\par {{\field{{\*\fldinst HYPERLINK ""{info.JiraIssue.Permalink}""}}{{\fldrslt {info.JiraIssue.Permalink}}}}}\par");
+        }
+
+        sb.AppendLine(@"\pard\qr\ul \par\ulnone");
+        sb.AppendLine(@"\fs18\cf2 Please do not modify this appointment manually if it is synced automatically.\fs22\cf0\par");
+        sb.AppendLine(@"}");
+
+        return sb.ToString();
+    }
+
+    private static string GetSubject(OutlookAppointmentInfo info) => info.TempoEntry.Description ?? $"Issue - {info.JiraIssue?.Key ?? $"#{info.TempoEntry.Id}"}";
 }

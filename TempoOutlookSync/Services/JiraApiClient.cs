@@ -3,11 +3,16 @@
 using System.Buffers.Text;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
 using TempoOutlookSync.Common;
+using TempoOutlookSync.Dto;
+using TempoOutlookSync.Models;
 
 public sealed class JiraApiClient : IDisposable
 {
-    private const string BaseApiUrl = "https://edocag.atlassian.net/rest/api/3";
+    private const string BaseUrl = "https://edocag.atlassian.net";
+    private const string BaseApiUrl = $"{BaseUrl}/rest/api/3";
 
     private readonly ILogger _logger;
     private readonly ConfigurationHandler _config;
@@ -25,7 +30,42 @@ public sealed class JiraApiClient : IDisposable
         };
     }
 
-    //GetIssueById
+    public async Task ThrowIfCantConnect()
+    {
+        SetHeaders(_client, _config.Current);
+
+        var url = $"{BaseApiUrl}/myself";
+        using (var response = await _client.GetAsync(url))
+        {
+            response.EnsureSuccessStatusCode();
+        }
+    }
+
+    public async Task<JiraIssue?> GetIssueById(int id)
+    {
+        try
+        {
+            SetHeaders(_client, _config.Current);
+
+            var url = $"{BaseApiUrl}/issue/{id}";
+            using (var response = await _client.GetAsync(url))
+            {
+                response.EnsureSuccessStatusCode();
+
+                using (var stream = await response.Content.ReadAsStreamAsync())
+                {
+                    var issueDto = await JsonSerializer.DeserializeAsync<JiraIssueDto>(stream, JiraIssueDtoJsonContext.Default.JiraIssueDto);
+
+                    return issueDto is null ? null : new JiraIssue(issueDto, $"{BaseUrl}/browse/");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex.Message, ex);
+            return null;
+        }
+    }
 
     public void Dispose() => _client.Dispose();
 

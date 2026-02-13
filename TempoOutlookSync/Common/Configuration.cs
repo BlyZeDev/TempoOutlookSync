@@ -2,7 +2,7 @@
 
 using System.Text.Json.Serialization;
 
-public sealed class Configuration
+public sealed record Configuration
 {
     public required string Email { get; init; }
     public required string JiraApiToken { get; init; }

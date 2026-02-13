@@ -1,9 +1,8 @@
 ﻿namespace TempoOutlookSync.Dto;
 
-using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 
-public sealed class TempoPlannerPayloadDto
+public sealed record TempoPlannerPayloadDto
 {
     [JsonPropertyName("results")]
     public List<TempoPlannerEntryDto>? Results { get; init; }

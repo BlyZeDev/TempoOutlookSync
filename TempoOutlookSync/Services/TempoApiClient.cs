@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using TempoOutlookSync.Common;
 using TempoOutlookSync.Dto;
+using TempoOutlookSync.Models;
 
 public sealed class TempoApiClient : IDisposable
 {
@@ -30,7 +31,9 @@ public sealed class TempoApiClient : IDisposable
     public async Task ThrowIfCantConnect()
     {
         SetHeaders(_client, _config.Current);
-        using (var response = await _client.GetAsync(BuildTempoPlannerUrl(DateTime.Now, DateTime.Now.AddDays(1), _config.Current)))
+
+        var url = $"{BaseApiUrl}/worklogs/user/{_config.Current.UserId}?limit=1";
+        using (var response = await _client.GetAsync(url))
         {
             response.EnsureSuccessStatusCode();
         }
@@ -43,13 +46,16 @@ public sealed class TempoApiClient : IDisposable
         try
         {
             SetHeaders(_client, _config.Current);
-            using (var response = await _client.GetAsync(BuildTempoPlannerUrl(startDate, endDate, _config.Current)))
+
+            var url = $"{BaseApiUrl}/plans/user/{_config.Current.UserId}?from={startDate.ToString(TempoDateFormat)}&to={endDate.ToString(TempoDateFormat)}";
+            using (var response = await _client.GetAsync(url))
             {
                 response.EnsureSuccessStatusCode();
 
                 using (var stream = await response.Content.ReadAsStreamAsync())
                 {
-                    payload = await JsonSerializer.DeserializeAsync<TempoPlannerPayloadDto>(stream) ?? throw new JsonException("Invalid response");
+                    payload = await JsonSerializer.DeserializeAsync<TempoPlannerPayloadDto>(stream,
+                        TempoPlannerPayloadDtoJsonContext.Default.TempoPlannerPayloadDto) ?? throw new JsonException("Invalid response");
                 }
             }
         }
@@ -76,7 +82,4 @@ public sealed class TempoApiClient : IDisposable
         });
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", config.TempoApiToken);
     }
-
-    private static string BuildTempoPlannerUrl(DateTime startDate, DateTime endDate, Configuration config)
-        => $"{BaseApiUrl}/plans/user/{config.UserId}?from={startDate.ToString(TempoDateFormat)}&to={endDate.ToString(TempoDateFormat)}";
 }

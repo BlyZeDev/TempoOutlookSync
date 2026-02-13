@@ -11,5 +11,6 @@ using Jab;
 [Singleton<TempoOutlookSyncContext>]
 [Singleton<ConfigurationHandler>]
 [Singleton<TempoApiClient>]
+[Singleton<JiraApiClient>]
 [Singleton<OutlookClient>]
 public sealed partial class ServiceProvider;
