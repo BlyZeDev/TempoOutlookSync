@@ -103,6 +103,24 @@ public sealed class OutlookClient : IDisposable
         appointment.BusyStatus = OlBusyStatus.olBusy;
         appointment.ReminderSet = false;
 
+        if (info.Category is not null)
+        {
+            var categories = outlook.GetNamespace("MAPI").Categories;
+            Category? category;
+            try
+            {
+                category = categories[info.Category.Name];
+            }
+            catch (System.Exception)
+            {
+                category = null;
+            }
+
+            if (category is null) categories.Add(info.Category.Name, info.Category.Color, OlCategoryShortcutKey.olCategoryShortcutKeyNone);
+
+            appointment.Categories = info.Category.Name;
+        }
+
         appointment.UserProperties.Add(OutlookTempoIdProperty, OlUserPropertyType.olText, true).Value = info.TempoEntry.Id.ToString();
         appointment.UserProperties.Add(OutlookTempoUpdatedProperty, OlUserPropertyType.olText, true).Value = info.TempoEntry.LastUpdated.ToString("O");
 

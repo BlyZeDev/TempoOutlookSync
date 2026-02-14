@@ -16,6 +16,7 @@ public sealed record JiraIssue
     public string Permalink { get; }
     public string? Summary { get; }
     public string? IssueType { get; }
+    public string? ProjectKey { get; }
     public string? ProjectName { get; }
     public string? ProjectCategory { get; }
     public JiraStatusCategory StatusCategory { get; }
@@ -29,6 +30,7 @@ public sealed record JiraIssue
         Permalink = $"{baseUrl}{Key}";
         Summary = dto.Fields.Summary;
         IssueType = dto.Fields.IssueType?.Name;
+        ProjectKey = dto.Fields.Project?.Key;
         ProjectName = dto.Fields.Project?.Name;
         ProjectCategory = dto.Fields.Project?.Category?.Name;
         StatusCategory = ParseStatusCategory(dto.Fields.Status?.Category?.Key);
@@ -54,13 +56,13 @@ public sealed record JiraIssue
     {
         return statusName switch
         {
-            null => JiraStatus.Unknown,
+            null => JiraStatus.Other,
             var name when name.Equals("Warten auf Kunde", StringComparison.OrdinalIgnoreCase) => JiraStatus.WaitingForCustomer,
             var name when name.Equals("In Arbeit", StringComparison.OrdinalIgnoreCase) => JiraStatus.InProgess,
             var name when name.Equals("Aufgabe Kunde", StringComparison.OrdinalIgnoreCase) => JiraStatus.CustomerAssignment,
             var name when name.Equals("Warten auf 3rd Level", StringComparison.OrdinalIgnoreCase) => JiraStatus.WaitingFor3rdLevel,
             var name when name.Equals("Aufgabe Edoc", StringComparison.OrdinalIgnoreCase) => JiraStatus.EdocAssignment,
-            _ => JiraStatus.Unknown
+            _ => JiraStatus.Other
         };
     }
 }

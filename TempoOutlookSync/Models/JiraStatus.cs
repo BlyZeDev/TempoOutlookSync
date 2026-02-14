@@ -2,7 +2,7 @@
 
 public enum JiraStatus
 {
-    Unknown,
+    Other,
     WaitingForCustomer,
     InProgess,
     CustomerAssignment,
