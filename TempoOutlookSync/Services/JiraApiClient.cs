@@ -49,7 +49,7 @@ public sealed class JiraApiClient : IDisposable
         {
             SetHeaders(_client, _config.Current);
 
-            var url = $"{BaseApiUrl}/issue/{id}";
+            var url = $"{BaseApiUrl}/issue/{id}?fields=id,key,summary,issuetype,project,status,updated,created";
             using (var response = await _client.GetAsync(url))
             {
                 response.EnsureSuccessStatusCode();
@@ -72,6 +72,29 @@ public sealed class JiraApiClient : IDisposable
     public async Task<JiraProject?> GetProjectByIdAsync(string? id)
     {
         if (id is null) return null;
+
+        try
+        {
+            SetHeaders(_client, _config.Current);
+
+            var url = $"{BaseApiUrl}/project/{id}";
+            using (var response = await _client.GetAsync(url))
+            {
+                response.EnsureSuccessStatusCode();
+
+                using (var stream = await response.Content.ReadAsStreamAsync())
+                {
+                    var projectDto = await JsonSerializer.DeserializeAsync<JiraProjectDto>(stream, JiraProjectDtoJsonContext.Default.JiraProjectDto);
+
+                    return projectDto is null ? null : new JiraProject(projectDto, $"{BaseUrl}/browse/");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex.Message, ex);
+            return null;
+        }
     }
 
     public void Dispose() => _client.Dispose();

@@ -6,8 +6,8 @@ public sealed record JiraIssueStatusCategoryDto
 {
     [JsonPropertyName("id")]
     public required int Id { get; init; }
-    [JsonPropertyName("name")]
-    public required string Name { get; init; }
+    [JsonPropertyName("key")]
+    public required string Key { get; init; }
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]

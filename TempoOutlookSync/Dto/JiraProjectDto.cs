@@ -2,7 +2,7 @@
 
 using System.Text.Json.Serialization;
 
-public sealed record JiraIssueProjectDto
+public sealed record JiraProjectDto
 {
     [JsonPropertyName("id")]
     public required string Id { get; init; }
@@ -15,5 +15,5 @@ public sealed record JiraIssueProjectDto
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
-[JsonSerializable(typeof(JiraIssueProjectDto), GenerationMode = JsonSourceGenerationMode.Default)]
-public sealed partial class JiraIssueProjectDtoJsonContext : JsonSerializerContext;
+[JsonSerializable(typeof(JiraProjectDto), GenerationMode = JsonSourceGenerationMode.Default)]
+public sealed partial class JiraProjectDtoJsonContext : JsonSerializerContext;

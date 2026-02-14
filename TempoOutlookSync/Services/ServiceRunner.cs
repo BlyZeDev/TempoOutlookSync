@@ -127,8 +127,8 @@ public sealed class ServiceRunner : IDisposable
         _icon.ShowBalloon(new BalloonNotification
         {
             Icon = BalloonNotificationIcon.User,
-            Title = $"{nameof(TempoOutlookSync)} is now running",
-            Message = "This application runs in the background and synchronizes the Tempo Capacity Planner into the Outlook calendar regularly."
+            Title = $"{nameof(TempoOutlookSync)}",
+            Message = "is now running in the background"
         });
 
         while (!_cts.IsCancellationRequested)
@@ -200,33 +200,22 @@ public sealed class ServiceRunner : IDisposable
             var changeCount = 0;
             await foreach (var entry in _tempo.GetPlannerEntriesAsync(today, todayAddYear))
             {
-                JiraIssueOrProject? jiraItem = entry.PlanItemType switch
-                {
-                    TempoPlanItemType.Issue => await _jira.GetIssueByIdAsync(entry.PlanItemId),
-                    TempoPlanItemType.Project => await _jira.GetProjectByIdAsync(entry.PlanItemId),
-                    _ => null
-                };
-                var needsCreation = true;
+                var appointmentInfo = await GetAppointmentInfoAsync(entry);
 
+                var needsCreation = true;
                 if (existingTempoAppointments.TryGetValue(entry.Id, out var appointments))
                 {
                     needsCreation = false;
 
                     foreach (var item in appointments)
                     {
-                        needsCreation |= _outlook.DeleteIfOutdated(item, entry.LastUpdated, jiraItem?.LastUpdated ?? DateTime.MinValue);
+                        if (appointmentInfo is null) item.Delete();
+                        else needsCreation |= _outlook.DeleteIfDifferent(item, entry.LastUpdated, appointmentInfo.LastUpdated ?? DateTime.MinValue);
                     }
 
                     existingTempoAppointments.Remove(entry.Id);
                 }
-
-                if (!needsCreation) continue;
-
-                var appointmentInfo = new OutlookAppointmentInfo
-                {
-                    TempoEntry = entry,
-                    JiraIssue = jiraItem
-                };
+                if (!needsCreation || appointmentInfo is null) continue;
 
                 changeCount++;
                 switch (entry.RecurrenceRule)
@@ -275,6 +264,28 @@ public sealed class ServiceRunner : IDisposable
             _syncNowMenuItem.IsDisabled = false;
         }
     }
+
+    private async Task<OutlookAppointmentInfo?> GetAppointmentInfoAsync(TempoPlannerEntry entry)
+    {
+        OutlookAppointmentInfo appointmentInfo;
+        switch (entry.PlanItemType)
+        {
+            case TempoPlanItemType.Issue:
+                var jiraIssue = await _jira.GetIssueByIdAsync(entry.PlanItemId);
+                if (jiraIssue?.StatusCategory is JiraStatusCategory.Done) return null;
+                appointmentInfo = jiraIssue is null ? new OutlookAppointmentInfo(entry) : new OutlookAppointmentInfo(entry, jiraIssue);
+                break;
+
+            case TempoPlanItemType.Project:
+                var jiraProject = await _jira.GetProjectByIdAsync(entry.PlanItemId);
+                appointmentInfo = jiraProject is null ? new OutlookAppointmentInfo(entry) : new OutlookAppointmentInfo(entry, jiraProject);
+                break;
+
+            default: appointmentInfo = new OutlookAppointmentInfo(entry); break;
+        }
+        return appointmentInfo;
+    }
+
 
     private void OnUnhandledException(object sender, UnhandledExceptionEventArgs args)
         => ControlledCrash(args.ExceptionObject as Exception ?? new Exception("Unknown exception was thrown"));

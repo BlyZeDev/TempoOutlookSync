@@ -31,7 +31,7 @@ public sealed record JiraIssue
         IssueType = dto.Fields.IssueType?.Name;
         ProjectName = dto.Fields.Project?.Name;
         ProjectCategory = dto.Fields.Project?.Category?.Name;
-        StatusCategory = ParseStatusCategory(dto.Fields.Status?.Category?.Name);
+        StatusCategory = ParseStatusCategory(dto.Fields.Status?.Category?.Key);
         Status = ParseStatus(dto.Fields.Status?.Name);
         LastUpdated = DateTimeOffset.ParseExact(dto.Fields.Updated ?? dto.Fields.Created, "yyyy-MM-ddTHH:mm:ss.FFFFFFFzz00", CultureInfo.InvariantCulture).UtcDateTime;
     }
