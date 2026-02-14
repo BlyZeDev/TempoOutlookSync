@@ -41,8 +41,10 @@ public sealed class JiraApiClient : IDisposable
         }
     }
 
-    public async Task<JiraIssue?> GetIssueById(int id)
+    public async Task<JiraIssue?> GetIssueByIdAsync(string? id)
     {
+        if (id is null) return null;
+
         try
         {
             SetHeaders(_client, _config.Current);
@@ -65,6 +67,11 @@ public sealed class JiraApiClient : IDisposable
             _logger.LogError(ex.Message, ex);
             return null;
         }
+    }
+
+    public async Task<JiraProject?> GetProjectByIdAsync(string? id)
+    {
+        if (id is null) return null;
     }
 
     public void Dispose() => _client.Dispose();

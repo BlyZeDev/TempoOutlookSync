@@ -97,7 +97,7 @@ public sealed class OutlookClient : IDisposable
 
         appointment.Subject = GetSubject(info);
         appointment.BodyFormat = OlBodyFormat.olFormatRichText;
-        appointment.Body = BuildAppointmentRichText(info);
+        appointment.Body = BuildAppointmentRtf(info);
         appointment.Start = start;
         appointment.BusyStatus = OlBusyStatus.olBusy;
         appointment.ReminderSet = false;
@@ -170,29 +170,49 @@ public sealed class OutlookClient : IDisposable
         return mask;
     }
 
-    private static string BuildAppointmentRichText(OutlookAppointmentInfo info)
+    private static string BuildAppointmentRtf(OutlookAppointmentInfo info)
     {
         var sb = new StringBuilder();
 
         sb.AppendLine(@"{\rtf1\ansi\deff0");
         sb.AppendLine(@"{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}{\f1\fnil\fcharset0 Calibri;}}");
-        sb.AppendLine(@"{\colortbl ;\red46\green134\blue193;\red128\green128\blue128;}");
-        sb.AppendLine(@"\f0\fs22\cf2\i This appointment was auto-imported from Jira Tempo.\i0\par");
-        sb.AppendLine($@"\fs28\cf1 {GetSubject(info)}\fs22\cf0\par");
+        sb.AppendLine(@"{\colortbl ;\red46\green134\blue193;\red100\green100\blue100;}");
+        sb.AppendLine(@"\viewkind4\uc1\pard\sl240\slmult1");
+
+        sb.AppendLine(@"\f0\fs20\cf2\i Auto-imported from Jira Tempo\i0\cf0\par\par");
+
+        sb.AppendLine($@"\f0\fs26\cf0\b {EscapeRtf(GetSubject(info))}\b0\par");
+        sb.AppendLine(@"\fs22\par");
 
         if (info.JiraIssue is not null)
         {
-            if (info.JiraIssue.Summary is not null) sb.AppendLine($@"\b Description:\b0\par {info.JiraIssue.Summary}\par");
+            if (!string.IsNullOrWhiteSpace(info.JiraIssue.Summary))
+            {
+                sb.AppendLine($@"{EscapeRtf(info.JiraIssue.Summary)}\par\par");
+            }
 
-            sb.AppendLine($@"\b Jira Url:\b0\par {{\field{{\*\fldinst HYPERLINK ""{info.JiraIssue.Permalink}""}}{{\fldrslt {info.JiraIssue.Permalink}}}}}\par");
+            if (!string.IsNullOrWhiteSpace(info.JiraIssue.Permalink))
+            {
+                var url = EscapeRtf(info.JiraIssue.Permalink);
+
+                sb.AppendLine(@"\cf1");
+                sb.AppendLine($@"{{\field{{\*\fldinst HYPERLINK ""{url}""}}{{\fldrslt\ul {url}\ulnone}}}}");
+                sb.AppendLine(@"\cf0\par");
+            }
         }
 
-        sb.AppendLine(@"\pard\qr\ul \par\ulnone");
-        sb.AppendLine(@"\fs18\cf2 Please do not modify this appointment manually if it is synced automatically.\fs22\cf0\par");
+        sb.AppendLine(@"\par\fs18\cf2 Please do not modify this appointment manually if it is synced automatically.\cf0");
         sb.AppendLine(@"}");
 
         return sb.ToString();
     }
 
     private static string GetSubject(OutlookAppointmentInfo info) => info.TempoEntry.Description ?? $"Issue - {info.JiraIssue?.Key ?? $"#{info.TempoEntry.Id}"}";
+
+    private static string EscapeRtf(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+
+        return value.Replace(@"\", @"\\").Replace("{", @"\{").Replace("}", @"\}").Replace("\r\n", @"\par ").Replace("\n", @"\par ");
+    }
 }

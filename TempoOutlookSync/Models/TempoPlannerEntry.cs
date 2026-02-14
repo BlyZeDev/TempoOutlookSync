@@ -23,6 +23,8 @@ public sealed record TempoPlannerEntry
     public DateTime RecurrenceEnd { get; }
     public bool IncludeNonWorkingDays { get; }
     public DateTime LastUpdated { get; }
+    public string? PlanItemId { get; }
+    public TempoPlanItemType PlanItemType { get; }
 
     public TempoPlannerEntry(TempoPlannerEntryDto dto)
     {
@@ -58,6 +60,10 @@ public sealed record TempoPlannerEntry
         IncludeNonWorkingDays = dto.IncludeNonWorkingDays ?? true;
 
         LastUpdated = DateTimeOffset.Parse(dto.UpdatedAt ?? dto.CreatedAt).UtcDateTime;
+
+        PlanItemId = dto.PlanItem?.Id;
+
+        PlanItemType = ParsePlanItemType(dto.PlanItem?.Type);
     }
 
     public override string ToString() => JsonSerializer.Serialize(this, _options);
@@ -70,6 +76,17 @@ public sealed record TempoPlannerEntry
             var rule when rule.Equals("bi_weekly", StringComparison.OrdinalIgnoreCase) => TempoRecurrenceRule.BiWeekly,
             var rule when rule.Equals("monthly", StringComparison.OrdinalIgnoreCase) => TempoRecurrenceRule.Monthly,
             _ => TempoRecurrenceRule.Never
+        };
+    }
+
+    private static TempoPlanItemType ParsePlanItemType(string? planItemType)
+    {
+        return planItemType switch
+        {
+            null => TempoPlanItemType.Unknown,
+            var type when type.Equals("issue", StringComparison.OrdinalIgnoreCase) => TempoPlanItemType.Issue,
+            var type when type.Equals("project", StringComparison.OrdinalIgnoreCase) => TempoPlanItemType.Project,
+            _ => TempoPlanItemType.Unknown
         };
     }
 }

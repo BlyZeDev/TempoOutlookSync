@@ -64,7 +64,7 @@ public sealed class ServiceRunner : IDisposable
         });
         _nextSyncMenuItem = _icon.MenuItems.AddItem(x =>
         {
-            x.Text = $"Next Sync - {(int)Math.Round(Interval.TotalMinutes, 0)}min";
+            x.Text = $"Next Sync in {Util.FormatTime(Interval)}";
             x.IsDisabled = true;
         });
         _icon.MenuItems.AddItem(x =>
@@ -154,7 +154,11 @@ public sealed class ServiceRunner : IDisposable
     }
 
     private void OnPopupShowing(MouseButton mouseButton)
-        => _nextSyncMenuItem.Text = $"Next Sync - {(int)Math.Round(GetRemainingUntilSync(lastSyncUtcBinary).TotalMinutes, 0)}min";
+    {
+        _nextSyncMenuItem.Text = Interlocked.CompareExchange(ref isSyncing, false, false)
+            ? $"Syncing..."
+            : $"Next Sync in {Util.FormatTime(GetRemainingUntilSync(lastSyncUtcBinary))}";
+    }
 
     private void OnLog(LogLevel logLevel, string message, Exception? exception)
     {
@@ -171,7 +175,9 @@ public sealed class ServiceRunner : IDisposable
     private void OnConfigurationReload(ConfigChangedEventArgs args)
     {
         if (!args.OldConfig.UserId.Equals(args.NewConfig.UserId, StringComparison.Ordinal)
-            || !args.OldConfig.TempoApiToken.Equals(args.NewConfig.TempoApiToken, StringComparison.Ordinal)) manualSyncCts.Cancel();
+            || !args.OldConfig.TempoApiToken.Equals(args.NewConfig.TempoApiToken, StringComparison.Ordinal)
+            || !args.OldConfig.Email.Equals(args.NewConfig.Email, StringComparison.Ordinal)
+            || !args.OldConfig.JiraApiToken.Equals(args.NewConfig.JiraApiToken, StringComparison.Ordinal)) manualSyncCts.Cancel();
     }
 
     private async Task SyncTempoToOutlookAsync()
@@ -194,7 +200,12 @@ public sealed class ServiceRunner : IDisposable
             var changeCount = 0;
             await foreach (var entry in _tempo.GetPlannerEntriesAsync(today, todayAddYear))
             {
-                var issue = await _jira.GetIssueById(entry.Id);
+                JiraIssueOrProject? jiraItem = entry.PlanItemType switch
+                {
+                    TempoPlanItemType.Issue => await _jira.GetIssueByIdAsync(entry.PlanItemId),
+                    TempoPlanItemType.Project => await _jira.GetProjectByIdAsync(entry.PlanItemId),
+                    _ => null
+                };
                 var needsCreation = true;
 
                 if (existingTempoAppointments.TryGetValue(entry.Id, out var appointments))
@@ -203,7 +214,7 @@ public sealed class ServiceRunner : IDisposable
 
                     foreach (var item in appointments)
                     {
-                        needsCreation |= _outlook.DeleteIfOutdated(item, entry.LastUpdated, issue?.LastUpdated ?? DateTime.MinValue);
+                        needsCreation |= _outlook.DeleteIfOutdated(item, entry.LastUpdated, jiraItem?.LastUpdated ?? DateTime.MinValue);
                     }
 
                     existingTempoAppointments.Remove(entry.Id);
@@ -211,32 +222,25 @@ public sealed class ServiceRunner : IDisposable
 
                 if (!needsCreation) continue;
 
+                var appointmentInfo = new OutlookAppointmentInfo
+                {
+                    TempoEntry = entry,
+                    JiraIssue = jiraItem
+                };
+
                 changeCount++;
                 switch (entry.RecurrenceRule)
                 {
-                    case TempoRecurrenceRule.Never when entry.End.Date >= entry.Start.Date:
-                        _outlook.SaveNonRecurring(new OutlookAppointmentInfo
-                        {
-                            TempoEntry = entry,
-                            JiraIssue = issue
-                        });
+                    case TempoRecurrenceRule.Never:
+                        _outlook.SaveNonRecurring(appointmentInfo);
                         break;
 
-                    case TempoRecurrenceRule.Weekly:
-                    case TempoRecurrenceRule.BiWeekly:
-                        _outlook.SaveWeeklyRecurring(new OutlookAppointmentInfo
-                        {
-                            TempoEntry = entry,
-                            JiraIssue = issue
-                        });
+                    case TempoRecurrenceRule.Weekly or TempoRecurrenceRule.BiWeekly:
+                        _outlook.SaveWeeklyRecurring(appointmentInfo);
                         break;
 
-                    case TempoRecurrenceRule.Monthly when entry.End.Day != entry.Start.Day:
-                        _outlook.SaveMonthlyRecurrence(new OutlookAppointmentInfo
-                        {
-                            TempoEntry = entry,
-                            JiraIssue = issue
-                        });
+                    case TempoRecurrenceRule.Monthly:
+                        _outlook.SaveMonthlyRecurrence(appointmentInfo);
                         break;
 
                     default: changeCount--; break;
@@ -254,7 +258,7 @@ public sealed class ServiceRunner : IDisposable
                 }
             }
 
-            _logger.LogInfo(@$"Synced {changeCount} item(s), next sync in {Interval:hh\:mm\:ss} minutes");
+            _logger.LogInfo(@$"Synced {changeCount} item(s), next sync in {Util.FormatTime(Interval)}");
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized)
         {

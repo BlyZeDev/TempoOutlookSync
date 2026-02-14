@@ -9,7 +9,7 @@ using TempoOutlookSync.Models;
 
 public sealed class TempoApiClient : IDisposable
 {
-    private const string BaseApiUrl = "https://api.tempo.io/4";
+    private const string BaseApiUrl = "https://api.eu.tempo.io/4";
     public const string TempoDateFormat = "yyyy-MM-dd";
 
     private readonly ILogger _logger;

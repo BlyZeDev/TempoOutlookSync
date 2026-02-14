@@ -28,6 +28,8 @@ public sealed record TempoPlannerEntryDto
     public required string CreatedAt { get; init; }
     [JsonPropertyName("updatedAt")]
     public string? UpdatedAt { get; init; }
+    [JsonPropertyName("planItem")]
+    public TempoPlannerEntryPlanItemDto? PlanItem { get; init; }
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
