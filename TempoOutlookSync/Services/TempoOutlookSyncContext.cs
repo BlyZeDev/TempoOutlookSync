@@ -8,7 +8,7 @@ using TempoOutlookSync.Common;
 public sealed class TempoOutlookSyncContext : IDisposable
 {
     public const string Version = "2.0.0";
-    public const string ConfigFileName = "usersettings.json";
+    public const string UserSettingsFileName = "usersettings.toml";
 
     private readonly HashSet<string> _tempPaths;
 
@@ -35,7 +35,7 @@ public sealed class TempoOutlookSyncContext : IDisposable
     /// <summary>
     /// The path to the configuration
     /// </summary>
-    public string ConfigurationPath { get; }
+    public string UserSettingsPath { get; }
 
     /// <summary>
     /// The base directory for all log files
@@ -59,7 +59,7 @@ public sealed class TempoOutlookSyncContext : IDisposable
 
         IcoPath = icoPath;
 
-        ConfigurationPath = Path.Combine(AppFilesDirectory, ConfigFileName);
+        UserSettingsPath = Path.Combine(AppFilesDirectory, UserSettingsFileName);
 
         LogDirectory = Path.Combine(AppFilesDirectory, "Logs");
         Directory.CreateDirectory(LogDirectory);

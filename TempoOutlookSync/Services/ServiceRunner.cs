@@ -15,7 +15,7 @@ public sealed class ServiceRunner : IDisposable
 
     private readonly ILogger _logger;
     private readonly TempoOutlookSyncContext _context;
-    private readonly ConfigurationHandler _config;
+    private readonly AppConfiguration _config;
     private readonly TempoApiClient _tempo;
     private readonly JiraApiClient _jira;
     private readonly OutlookClient _outlook;
@@ -29,7 +29,7 @@ public sealed class ServiceRunner : IDisposable
     private long lastSyncUtcBinary;
     private bool isSyncing;
 
-    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookClient outlook)
+    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, AppConfiguration config, TempoApiClient tempo, JiraApiClient jira, OutlookClient outlook)
     {
         _logger = logger;
         _context = context;
@@ -76,16 +76,8 @@ public sealed class ServiceRunner : IDisposable
                 x.Clicked = _ =>
                 {
                     _logger.LogDebug("Opening the application folder");
+                    Directory.CreateDirectory(context.AppFilesDirectory);
                     Util.ShellOpen(_context.AppFilesDirectory);
-                };
-            });
-            x.SubMenu.AddItem(x =>
-            {
-                x.Text = "Edit Configuration";
-                x.Clicked = _ =>
-                {
-                    _logger.LogDebug("Opening the configuration file");
-                    Util.ShellOpen(_context.ConfigurationPath);
                 };
             });
             x.SubMenu.AddItem(x =>
@@ -103,12 +95,18 @@ public sealed class ServiceRunner : IDisposable
                     _logger.LogInfo($"Autostart is now {(isActivated ? "activated" : "removed")}");
                 };
             });
+            x.SubMenu.AddItem(x =>
+            {
+                x.Text = "Help";
+                x.Clicked = _ => Util.ShellOpen($"https://github.com/BlyZeDev/{nameof(TempoOutlookSync)}");
+            });
         });
         _icon.MenuItems.AddSeparator();
         _icon.MenuItems.AddItem(x =>
         {
             x.Text = $"Version {TempoOutlookSyncContext.Version}";
-            x.Clicked = _ => Util.ShellOpen($"https://github.com/BlyZeDev/{nameof(TempoOutlookSync)}");
+            x.TextDisabledColor = x.TextColor;
+            x.IsDisabled = true;
         });
         _icon.MenuItems.AddSeparator();
         _icon.MenuItems.AddItem(x =>
@@ -122,7 +120,7 @@ public sealed class ServiceRunner : IDisposable
     {
         _logger.LogLevel = LogLevel.Debug;
         _logger.Log += OnLog;
-        _config.ConfigurationReload += OnConfigurationReload;
+        _config.UserSettingsChanged += UserSettingsChanged;
 
         _icon.ShowBalloon(new BalloonNotification
         {
@@ -172,12 +170,12 @@ public sealed class ServiceRunner : IDisposable
         });
     }
 
-    private void OnConfigurationReload(ConfigChangedEventArgs args)
+    private void UserSettingsChanged(ObjectChangedEventArgs<UserSettings> args)
     {
-        if (!args.OldConfig.UserId.Equals(args.NewConfig.UserId, StringComparison.Ordinal)
-            || !args.OldConfig.TempoApiToken.Equals(args.NewConfig.TempoApiToken, StringComparison.Ordinal)
-            || !args.OldConfig.Email.Equals(args.NewConfig.Email, StringComparison.Ordinal)
-            || !args.OldConfig.JiraApiToken.Equals(args.NewConfig.JiraApiToken, StringComparison.Ordinal)) manualSyncCts.Cancel();
+        if (!args.Old.UserId.Equals(args.New.UserId, StringComparison.Ordinal)
+            || !args.Old.TempoApiToken.Equals(args.New.TempoApiToken, StringComparison.Ordinal)
+            || !args.Old.Email.Equals(args.New.Email, StringComparison.Ordinal)
+            || !args.Old.JiraApiToken.Equals(args.New.JiraApiToken, StringComparison.Ordinal)) manualSyncCts.Cancel();
     }
 
     private async Task SyncTempoToOutlookAsync()

@@ -13,11 +13,11 @@ public sealed class TempoApiClient : IDisposable
     public const string TempoDateFormat = "yyyy-MM-dd";
 
     private readonly ILogger _logger;
-    private readonly ConfigurationHandler _config;
+    private readonly AppConfiguration _config;
 
     private readonly HttpClient _client;
 
-    public TempoApiClient(ILogger logger, ConfigurationHandler config)
+    public TempoApiClient(ILogger logger, AppConfiguration config)
     {
         _logger = logger;
         _config = config;
@@ -30,9 +30,9 @@ public sealed class TempoApiClient : IDisposable
 
     public async Task ThrowIfCantConnect()
     {
-        SetHeaders(_client, _config.Current);
+        SetHeaders(_client, _config.UserSettings);
 
-        var url = $"{BaseApiUrl}/worklogs/user/{_config.Current.UserId}?limit=1";
+        var url = $"{BaseApiUrl}/worklogs/user/{_config.UserSettings.UserId}?limit=1";
         using (var response = await _client.GetAsync(url))
         {
             response.EnsureSuccessStatusCode();
@@ -45,9 +45,9 @@ public sealed class TempoApiClient : IDisposable
 
         try
         {
-            SetHeaders(_client, _config.Current);
+            SetHeaders(_client, _config.UserSettings);
 
-            var url = $"{BaseApiUrl}/plans/user/{_config.Current.UserId}?from={startDate.ToString(TempoDateFormat)}&to={endDate.ToString(TempoDateFormat)}";
+            var url = $"{BaseApiUrl}/plans/user/{_config.UserSettings.UserId}?from={startDate.ToString(TempoDateFormat)}&to={endDate.ToString(TempoDateFormat)}";
             using (var response = await _client.GetAsync(url))
             {
                 response.EnsureSuccessStatusCode();
@@ -73,13 +73,13 @@ public sealed class TempoApiClient : IDisposable
 
     public void Dispose() => _client.Dispose();
 
-    private static void SetHeaders(HttpClient client, Configuration config)
+    private static void SetHeaders(HttpClient client, UserSettings settings)
     {
         client.DefaultRequestHeaders.Accept.Clear();
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json")
         {
             CharSet = "utf-8"
         });
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", config.TempoApiToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", settings.TempoApiToken);
     }
 }

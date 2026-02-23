@@ -15,11 +15,11 @@ public sealed class JiraApiClient : IDisposable
     private const string BaseApiUrl = $"{BaseUrl}/rest/api/3";
 
     private readonly ILogger _logger;
-    private readonly ConfigurationHandler _config;
+    private readonly AppConfiguration _config;
 
     private readonly HttpClient _client;
 
-    public JiraApiClient(ILogger logger, ConfigurationHandler config)
+    public JiraApiClient(ILogger logger, AppConfiguration config)
     {
         _logger = logger;
         _config = config;
@@ -32,7 +32,7 @@ public sealed class JiraApiClient : IDisposable
 
     public async Task ThrowIfCantConnect()
     {
-        SetHeaders(_client, _config.Current);
+        SetHeaders(_client, _config.UserSettings);
 
         var url = $"{BaseApiUrl}/myself";
         using (var response = await _client.GetAsync(url))
@@ -47,7 +47,7 @@ public sealed class JiraApiClient : IDisposable
 
         try
         {
-            SetHeaders(_client, _config.Current);
+            SetHeaders(_client, _config.UserSettings);
 
             var url = $"{BaseApiUrl}/issue/{id}?fields=id,key,summary,issuetype,project,status,updated,created";
             using (var response = await _client.GetAsync(url))
@@ -75,7 +75,7 @@ public sealed class JiraApiClient : IDisposable
 
         try
         {
-            SetHeaders(_client, _config.Current);
+            SetHeaders(_client, _config.UserSettings);
 
             var url = $"{BaseApiUrl}/project/{id}";
             using (var response = await _client.GetAsync(url))
@@ -99,7 +99,7 @@ public sealed class JiraApiClient : IDisposable
 
     public void Dispose() => _client.Dispose();
 
-    private static void SetHeaders(HttpClient client, Configuration config)
+    private static void SetHeaders(HttpClient client, UserSettings settings)
     {
         client.DefaultRequestHeaders.Accept.Clear();
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json")
@@ -107,7 +107,7 @@ public sealed class JiraApiClient : IDisposable
             CharSet = "utf-8"
         });
 
-        var base64 = Encoding.UTF8.GetBytes($"{config.Email}:{config.JiraApiToken}");
+        var base64 = Encoding.UTF8.GetBytes($"{settings.Email}:{settings.JiraApiToken}");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(base64));
     }
 }
