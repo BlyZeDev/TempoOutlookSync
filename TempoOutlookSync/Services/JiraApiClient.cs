@@ -15,11 +15,11 @@ public sealed class JiraApiClient : IDisposable
     private const string BaseApiUrl = $"{BaseUrl}/rest/api/3";
 
     private readonly ILogger _logger;
-    private readonly AppConfiguration _config;
+    private readonly ConfigurationHandler _config;
 
     private readonly HttpClient _client;
 
-    public JiraApiClient(ILogger logger, AppConfiguration config)
+    public JiraApiClient(ILogger logger, ConfigurationHandler config)
     {
         _logger = logger;
         _config = config;

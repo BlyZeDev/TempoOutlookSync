@@ -7,7 +7,7 @@ using Microsoft.Extensions.Primitives;
 using System.Text;
 using TempoOutlookSync.Common;
 
-public sealed class AppConfiguration : IDisposable
+public sealed class ConfigurationHandler : IDisposable
 {
     private readonly ILogger _logger;
 
@@ -18,7 +18,7 @@ public sealed class AppConfiguration : IDisposable
 
     public event Action<ObjectChangedEventArgs<UserSettings>>? UserSettingsChanged;
 
-    public AppConfiguration(TempoOutlookSyncContext context, ILogger logger)
+    public ConfigurationHandler(TempoOutlookSyncContext context, ILogger logger)
     {
         _logger = logger;
 

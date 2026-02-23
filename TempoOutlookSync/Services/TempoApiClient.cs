@@ -13,11 +13,11 @@ public sealed class TempoApiClient : IDisposable
     public const string TempoDateFormat = "yyyy-MM-dd";
 
     private readonly ILogger _logger;
-    private readonly AppConfiguration _config;
+    private readonly ConfigurationHandler _config;
 
     private readonly HttpClient _client;
 
-    public TempoApiClient(ILogger logger, AppConfiguration config)
+    public TempoApiClient(ILogger logger, ConfigurationHandler config)
     {
         _logger = logger;
         _config = config;

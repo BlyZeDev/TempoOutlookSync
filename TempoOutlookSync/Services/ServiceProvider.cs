@@ -8,7 +8,7 @@ using Jab;
 [Singleton<ILoggerTarget, FileLogger>]
 [Singleton<ILogger, LoggerForwarder>]
 [Singleton<TempoOutlookSyncContext>]
-[Singleton<AppConfiguration>]
+[Singleton<ConfigurationHandler>]
 [Singleton<TempoApiClient>]
 [Singleton<JiraApiClient>]
 [Singleton<OutlookClient>]
