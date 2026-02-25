@@ -3,6 +3,7 @@
 using Microsoft.Office.Interop.Outlook;
 using System.Runtime.InteropServices;
 using System.Text;
+using TempoOutlookSync.Common;
 using TempoOutlookSync.Models;
 
 public sealed class OutlookClient : IDisposable
@@ -15,42 +16,93 @@ public sealed class OutlookClient : IDisposable
 
     public OutlookClient() => _outlook = new Application();
 
-    public Dictionary<int, HashSet<AppointmentItem>> GetOutlookTempoAppointments(DateTime start)
+    public Dictionary<int, HashSet<OutlookAppointmentRef>> GetOutlookTempoAppointments(DateTime start)
     {
-        var items = _outlook.GetNamespace("MAPI").GetDefaultFolder(OlDefaultFolders.olFolderCalendar).Items;
-        items.IncludeRecurrences = false;
-        items = items.Restrict($"@SQL=\"http://schemas.microsoft.com/mapi/string/{{00020329-0000-0000-C000-000000000046}}/{OutlookTempoIdProperty}\" IS NOT NULL");
-        items.Sort("[Start]");
+        var results = new Dictionary<int, HashSet<OutlookAppointmentRef>>();
 
-        return items.OfType<AppointmentItem>()
-            .Select(item => new
-            {
-                Item = item,
-                TempoId = item.UserProperties.Find(OutlookTempoIdProperty)
-            })
-            .Where(x => x.TempoId?.Value is not null)
-            .GroupBy(x => (int)int.Parse(x.TempoId.Value))
-            .ToDictionary(key => key.Key, value => new HashSet<AppointmentItem>(value.Select(x => x.Item)));
-    }
+        NameSpace? ns = null;
+        MAPIFolder? folder = null;
+        Items? items = null;
+        Items? restricted = null;
 
-    public bool DeleteIfDifferent(AppointmentItem appointment, DateTime latestTempoUpdate, DateTime latestJiraUpdate)
-    {
-        var tempoUpdated = appointment.UserProperties.Find(OutlookTempoUpdatedProperty)?.Value;
-        var jiraUpdated = appointment.UserProperties.Find(OutlookJiraUpdatedProperty)?.Value;
-
-        if (tempoUpdated is null || jiraUpdated is null)
+        try
         {
-            appointment.Delete();
-            return true;
+            ns = _outlook.GetNamespace("MAPI");
+            folder = ns.GetDefaultFolder(OlDefaultFolders.olFolderCalendar);
+            items = folder.Items;
+            
+
+            items.IncludeRecurrences = false;
+            restricted = items.Restrict($"@SQL=\"http://schemas.microsoft.com/mapi/string/{{00020329-0000-0000-C000-000000000046}}/{OutlookTempoIdProperty}\" IS NOT NULL");
+            restricted.Sort("[Start]");
+
+            for (int i = 1; i <= restricted.Count; i++)
+            {
+                var item = restricted[i] as AppointmentItem;
+
+                if (item is not null)
+                {
+                    var userProps = item.UserProperties;
+
+                    var tempoIdProp = userProps.Find(OutlookTempoIdProperty);
+                    var tempoUpdatedProp = userProps.Find(OutlookTempoUpdatedProperty);
+                    var jiraUpdatedProp = userProps.Find(OutlookJiraUpdatedProperty);
+
+                    if (tempoIdProp?.Value is string tempoIdStr)
+                    {
+                        if (int.TryParse(tempoIdStr, out var tempoId))
+                        {
+                            var appointmentRef = new OutlookAppointmentRef
+                            {
+                                TempoId = tempoId,
+                                EntryId = item.EntryID,
+                                Start = item.Start,
+                                End = item.End,
+                                TempoUpdated = ParseDateTime(tempoUpdatedProp?.Value),
+                                JiraUpdated = ParseDateTime(jiraUpdatedProp?.Value)
+                            };
+
+                            results.TryAdd(tempoId, new HashSet<OutlookAppointmentRef>());
+                            results[tempoId].Add(appointmentRef);
+                        }
+                    }
+
+                    ReleaseComObject(jiraUpdatedProp);
+                    ReleaseComObject(tempoUpdatedProp);
+                    ReleaseComObject(tempoIdProp);
+                    ReleaseComObject(userProps);
+                }
+
+                ReleaseComObject(item);
+            }
+        }
+        finally
+        {
+            ReleaseComObject(restricted);
+            ReleaseComObject(items);
+            ReleaseComObject(folder);
+            ReleaseComObject(ns);
         }
 
-        var lastTempoUpdate = ((DateTimeOffset)DateTimeOffset.Parse(tempoUpdated)).UtcDateTime;
-        var lastJiraUpdate = ((DateTimeOffset)DateTimeOffset.Parse(jiraUpdated)).UtcDateTime;
+        return results;
+    }
 
-        if (lastTempoUpdate == latestTempoUpdate && lastJiraUpdate == latestJiraUpdate) return false;
+    public void DeleteByEntryId(string entryId)
+    {
+        NameSpace? ns = null;
 
-        appointment.Delete();
-        return true;
+        try
+        {
+            ns = _outlook.GetNamespace("MAPI");
+
+            var item = ns.GetItemFromID(entryId) as AppointmentItem;
+            item?.Delete();
+            ReleaseComObject(item);
+        }
+        finally
+        {
+            ReleaseComObject(ns);
+        }
     }
 
     public void SaveNonRecurring(OutlookAppointmentInfo info)
@@ -59,16 +111,19 @@ public sealed class OutlookClient : IDisposable
         {
             if (!info.TempoEntry.IncludeNonWorkingDays && (day.DayOfWeek is DayOfWeek.Saturday || day.DayOfWeek is DayOfWeek.Sunday)) continue;
 
-            CreateSingle(_outlook, info, day + info.TempoEntry.StartTime);
+            CreateSingle(info, day + info.TempoEntry.StartTime);
         }
     }
 
     public void SaveWeeklyRecurring(OutlookAppointmentInfo info)
     {
         var baseStart = info.TempoEntry.Start.Date + info.TempoEntry.StartTime;
-        var appointment = CreateBase(_outlook, info, baseStart);
+        var appointment = CreateBase(info, baseStart);
+
         ApplyRecurrence(appointment, info.TempoEntry, baseStart);
+
         appointment.Save();
+        ReleaseComObject(appointment);
     }
 
     public void SaveMonthlyRecurrence(OutlookAppointmentInfo info)
@@ -76,23 +131,20 @@ public sealed class OutlookClient : IDisposable
         for (var day = info.TempoEntry.Start.Date; day <= info.TempoEntry.End.Date; day = day.AddDays(1))
         {
             var monthlyStart = day + info.TempoEntry.StartTime;
-
-            var monthlyAppointment = CreateBase(_outlook, info, monthlyStart);
+            var monthlyAppointment = CreateBase(info, monthlyStart);
 
             ApplyRecurrence(monthlyAppointment, info.TempoEntry, monthlyStart);
 
             monthlyAppointment.Save();
+            ReleaseComObject(monthlyAppointment);
         }
     }
 
-    public void Dispose()
-    {
-        Marshal.ReleaseComObject(_outlook);
-    }
+    public void Dispose() => Marshal.FinalReleaseComObject(_outlook);
 
-    private static AppointmentItem CreateBase(Application outlook, OutlookAppointmentInfo info, DateTime start)
+    private AppointmentItem CreateBase(OutlookAppointmentInfo info, DateTime start)
     {
-        var appointment = (AppointmentItem)outlook.CreateItem(OlItemType.olAppointmentItem);
+        var appointment = (AppointmentItem)_outlook.CreateItem(OlItemType.olAppointmentItem);
 
         appointment.Subject = info.Subject;
         appointment.BodyFormat = OlBodyFormat.olFormatRichText;
@@ -105,7 +157,9 @@ public sealed class OutlookClient : IDisposable
 
         if (info.Category is not null)
         {
-            var categories = outlook.GetNamespace("MAPI").Categories;
+            var ns = _outlook.GetNamespace("MAPI");
+            var categories = ns.Categories;
+
             Category? category;
             try
             {
@@ -119,6 +173,9 @@ public sealed class OutlookClient : IDisposable
             if (category is null) categories.Add(info.Category.Name, info.Category.Color, OlCategoryShortcutKey.olCategoryShortcutKeyNone);
 
             appointment.Categories = info.Category.Name;
+
+            ReleaseComObject(categories);
+            ReleaseComObject(ns);
         }
 
         appointment.UserProperties.Add(OutlookTempoIdProperty, OlUserPropertyType.olText, true).Value = info.TempoEntry.Id.ToString();
@@ -129,11 +186,13 @@ public sealed class OutlookClient : IDisposable
         return appointment;
     }
 
-    private static void CreateSingle(Application outlook, OutlookAppointmentInfo info, DateTime start)
+    private void CreateSingle(OutlookAppointmentInfo info, DateTime start)
     {
-        var appointment = CreateBase(outlook, info, start);
+        var appointment = CreateBase(info, start);
         appointment.End = start + info.TempoEntry.DurationPerDay;
+
         appointment.Save();
+        ReleaseComObject(appointment);
     }
 
     private static void ApplyRecurrence(AppointmentItem appointment, TempoPlannerEntry entry, DateTime start)
@@ -225,5 +284,17 @@ public sealed class OutlookClient : IDisposable
         if (string.IsNullOrEmpty(value)) return "";
 
         return value.Replace(@"\", @"\\").Replace("{", @"\{").Replace("}", @"\}").Replace("\r\n", @"\par ").Replace("\n", @"\par ");
+    }
+
+    private static DateTime? ParseDateTime(object? value)
+    {
+        if (value is not string str) return null;
+        if (!DateTimeOffset.TryParse(str, out var date)) return null;
+        return date.UtcDateTime;
+    }
+
+    private static void ReleaseComObject(object? value)
+    {
+        if (value is not null && Marshal.IsComObject(value)) Marshal.FinalReleaseComObject(value);
     }
 }

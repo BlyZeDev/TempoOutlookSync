@@ -19,6 +19,7 @@ public sealed class ServiceRunner : IDisposable
     private readonly TempoApiClient _tempo;
     private readonly JiraApiClient _jira;
     private readonly OutlookClient _outlook;
+    private readonly MemoryMonitor _monitor;
 
     private readonly CancellationTokenSource _cts;
     private readonly NotifyIcon _icon;
@@ -29,7 +30,7 @@ public sealed class ServiceRunner : IDisposable
     private long lastSyncUtcBinary;
     private bool isSyncing;
 
-    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookClient outlook)
+    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookClient outlook, MemoryMonitor monitor)
     {
         _logger = logger;
         _context = context;
@@ -37,6 +38,7 @@ public sealed class ServiceRunner : IDisposable
         _tempo = tempo;
         _jira = jira;
         _outlook = outlook;
+        _monitor = monitor;
 
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnhandledTaskException;
@@ -121,6 +123,8 @@ public sealed class ServiceRunner : IDisposable
         _logger.LogLevel = LogLevel.Debug;
         _logger.Log += OnLog;
         _config.UserSettingsChanged += UserSettingsChanged;
+
+        await _monitor.RunAsync(_cts.Token);
 
         _icon.ShowBalloon(new BalloonNotification
         {
@@ -207,8 +211,15 @@ public sealed class ServiceRunner : IDisposable
 
                     foreach (var item in appointments)
                     {
-                        if (appointmentInfo is null) item.Delete();
-                        else needsCreation |= _outlook.DeleteIfDifferent(item, entry.LastUpdated, appointmentInfo.LastUpdated ?? DateTime.MinValue);
+                        switch (appointmentInfo)
+                        {
+                            case null: _outlook.DeleteByEntryId(item.EntryId); break;
+
+                            case var _ when item.TempoUpdated != entry.LastUpdated || item.JiraUpdated != (appointmentInfo.LastUpdated ?? DateTime.MinValue):
+                                _outlook.DeleteByEntryId(item.EntryId);
+                                needsCreation = true;
+                                break;
+                        }
                     }
 
                     existingTempoAppointments.Remove(entry.Id);
@@ -233,7 +244,7 @@ public sealed class ServiceRunner : IDisposable
                     default: changeCount--; break;
                 }
             }
-
+            
             foreach (var deletedAppointments in existingTempoAppointments.Values)
             {
                 foreach (var obsoleteAppointment in deletedAppointments)
@@ -241,7 +252,7 @@ public sealed class ServiceRunner : IDisposable
                     if (obsoleteAppointment.End < today) continue;
 
                     changeCount++;
-                    obsoleteAppointment.Delete();
+                    _outlook.DeleteByEntryId(obsoleteAppointment.EntryId);
                 }
             }
 

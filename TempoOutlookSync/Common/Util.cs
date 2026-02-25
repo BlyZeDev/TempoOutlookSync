@@ -1,12 +1,14 @@
 ﻿namespace TempoOutlookSync.Common;
 
 using Microsoft.Win32;
+using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
 
 public static class Util
 {
     private const string StartupRegistryKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private static readonly ImmutableArray<string> Units = ["B", "KB", "MB", "GB", "TB"];
 
     public static string GetFileNameTimestamp() => $"{DateTime.UtcNow:yyyyMMddHHmmssff}Z";
 
@@ -28,6 +30,24 @@ public static class Util
         if (value != 1) unit += 's';
 
         return $"{(int)Math.Ceiling(value)} {unit}";
+    }
+
+    public static string FormatBytes(long bytes)
+    {
+        if (bytes <= 0) return "0B";
+
+        const int Threshold = 1024;
+
+        var value = (decimal)bytes;
+        var unitIndex = 0;
+
+        while (value >= Threshold && unitIndex < Units.Length - 1)
+        {
+            value /= Threshold;
+            unitIndex++;
+        }
+
+        return $"{value:0.##}{Units[unitIndex]}";
     }
 
     public static void ShellOpen(string fileName)
