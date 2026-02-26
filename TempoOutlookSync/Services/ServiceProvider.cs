@@ -12,5 +12,4 @@ using Jab;
 [Singleton<TempoApiClient>]
 [Singleton<JiraApiClient>]
 [Singleton<OutlookClient>]
-[Singleton<MemoryMonitor>]
 public sealed partial class ServiceProvider;

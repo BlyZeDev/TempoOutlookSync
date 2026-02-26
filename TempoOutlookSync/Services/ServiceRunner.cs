@@ -19,7 +19,6 @@ public sealed class ServiceRunner : IDisposable
     private readonly TempoApiClient _tempo;
     private readonly JiraApiClient _jira;
     private readonly OutlookClient _outlook;
-    private readonly MemoryMonitor _monitor;
 
     private readonly CancellationTokenSource _cts;
     private readonly NotifyIcon _icon;
@@ -30,7 +29,7 @@ public sealed class ServiceRunner : IDisposable
     private long lastSyncUtcBinary;
     private bool isSyncing;
 
-    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookClient outlook, MemoryMonitor monitor)
+    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookClient outlook)
     {
         _logger = logger;
         _context = context;
@@ -38,7 +37,6 @@ public sealed class ServiceRunner : IDisposable
         _tempo = tempo;
         _jira = jira;
         _outlook = outlook;
-        _monitor = monitor;
 
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnhandledTaskException;
@@ -49,11 +47,8 @@ public sealed class ServiceRunner : IDisposable
             x.BackgroundHoverColor = new TrayColor(218, 83, 225);
             x.BackgroundDisabledColor = new TrayColor(40, 40, 40);
             x.TextDisabledColor = new TrayColor(180, 180, 180);
-        }, x =>
-        {
-            x.LineThickness = 1.2f;
-        });
-        _icon.FontSize = 16f;
+        }, x => x.LineThickness = 1.2f);
+        _icon.SetFontSize(16f);
         _icon.SetToolTip($"{nameof(TempoOutlookSync)} - Version {TempoOutlookSyncContext.Version}");
         _icon.PopupShowing += OnPopupShowing;
 
@@ -124,8 +119,6 @@ public sealed class ServiceRunner : IDisposable
         _logger.Log += OnLog;
         _config.UserSettingsChanged += UserSettingsChanged;
 
-        await _monitor.RunAsync(_cts.Token);
-
         _icon.ShowBalloon(new BalloonNotification
         {
             Icon = BalloonNotificationIcon.User,
@@ -139,6 +132,12 @@ public sealed class ServiceRunner : IDisposable
             manualSyncCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
 
             await SyncTempoToOutlookAsync();
+
+            using (var process = Process.GetCurrentProcess())
+            {
+                process.Refresh();
+                _logger.LogDebug($"Memory Allocated: {Util.FormatBytes(process.PrivateMemorySize64)}");
+            }
 
             try
             {
