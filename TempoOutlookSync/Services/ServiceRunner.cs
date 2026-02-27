@@ -18,7 +18,7 @@ public sealed class ServiceRunner : IDisposable
     private readonly ConfigurationHandler _config;
     private readonly TempoApiClient _tempo;
     private readonly JiraApiClient _jira;
-    private readonly OutlookClient _outlook;
+    private readonly OutlookComClient _outlook;
 
     private readonly CancellationTokenSource _cts;
     private readonly NotifyIcon _icon;
@@ -29,7 +29,7 @@ public sealed class ServiceRunner : IDisposable
     private long lastSyncUtcBinary;
     private bool isSyncing;
 
-    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookClient outlook)
+    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookComClient outlook)
     {
         _logger = logger;
         _context = context;

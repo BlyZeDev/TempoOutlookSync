@@ -1,99 +1,126 @@
 ﻿namespace TempoOutlookSync.Services;
 
 using Microsoft.Office.Interop.Outlook;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using TempoOutlookSync.Common;
 using TempoOutlookSync.Models;
 
-public sealed class OutlookClient : IDisposable
+public sealed class OutlookComClient : IDisposable
 {
     private const string OutlookTempoIdProperty = "TempoId";
     private const string OutlookTempoUpdatedProperty = "TempoUpdated";
     private const string OutlookJiraUpdatedProperty = "JiraUpdated";
 
-    private readonly Application _outlook;
+    private readonly Thread _outlookThread;
+    private readonly BlockingCollection<System.Action> _queue;
 
-    public OutlookClient() => _outlook = new Application();
+    public OutlookComClient()
+    {
+        _queue = new BlockingCollection<System.Action>();
+
+        _outlookThread = new Thread(() =>
+        {
+            foreach (var action in _queue.GetConsumingEnumerable())
+            {
+                action();
+            }
+        });
+        _outlookThread.IsBackground = true;
+        _outlookThread.SetApartmentState(ApartmentState.STA);
+        _outlookThread.Start();
+    }
 
     public Dictionary<int, HashSet<OutlookAppointmentRef>> GetOutlookTempoAppointments(DateTime start)
     {
-        var results = new Dictionary<int, HashSet<OutlookAppointmentRef>>();
-
-        NameSpace? ns = null;
-        MAPIFolder? folder = null;
-        Items? items = null;
-        Items? restricted = null;
-
-        try
+        return ExecuteSTA(() =>
         {
-            ns = _outlook.GetNamespace("MAPI");
-            folder = ns.GetDefaultFolder(OlDefaultFolders.olFolderCalendar);
-            items = folder.Items;
-            
+            var results = new Dictionary<int, HashSet<OutlookAppointmentRef>>();
 
-            items.IncludeRecurrences = false;
-            restricted = items.Restrict($"@SQL=\"http://schemas.microsoft.com/mapi/string/{{00020329-0000-0000-C000-000000000046}}/{OutlookTempoIdProperty}\" IS NOT NULL");
-            restricted.Sort("[Start]");
+            Application? outlook = null;
+            NameSpace? ns = null;
+            MAPIFolder? folder = null;
+            Items? items = null;
+            Items? restricted = null;
 
-            for (int i = 1; i <= restricted.Count; i++)
+            try
             {
-                var item = restricted[i] as AppointmentItem;
+                outlook = new Application();
+                ns = outlook.GetNamespace("MAPI");
+                folder = ns.GetDefaultFolder(OlDefaultFolders.olFolderCalendar);
+                items = folder.Items;
 
-                if (item is not null)
+
+                items.IncludeRecurrences = false;
+                restricted = items.Restrict($"@SQL=\"http://schemas.microsoft.com/mapi/string/{{00020329-0000-0000-C000-000000000046}}/{OutlookTempoIdProperty}\" IS NOT NULL");
+                restricted.Sort("[Start]");
+
+                for (int i = 1; i <= restricted.Count; i++)
                 {
-                    var userProps = item.UserProperties;
+                    var item = restricted[i] as AppointmentItem;
 
-                    var tempoIdProp = userProps.Find(OutlookTempoIdProperty);
-                    var tempoUpdatedProp = userProps.Find(OutlookTempoUpdatedProperty);
-                    var jiraUpdatedProp = userProps.Find(OutlookJiraUpdatedProperty);
-
-                    if (tempoIdProp?.Value is string tempoIdStr)
+                    if (item is not null)
                     {
-                        if (int.TryParse(tempoIdStr, out var tempoId))
-                        {
-                            var appointmentRef = new OutlookAppointmentRef
-                            {
-                                TempoId = tempoId,
-                                EntryId = item.EntryID,
-                                Start = item.Start,
-                                End = item.End,
-                                TempoUpdated = ParseDateTime(tempoUpdatedProp?.Value),
-                                JiraUpdated = ParseDateTime(jiraUpdatedProp?.Value)
-                            };
+                        var userProps = item.UserProperties;
 
-                            results.TryAdd(tempoId, new HashSet<OutlookAppointmentRef>());
-                            results[tempoId].Add(appointmentRef);
+                        var tempoIdProp = userProps.Find(OutlookTempoIdProperty);
+                        var tempoUpdatedProp = userProps.Find(OutlookTempoUpdatedProperty);
+                        var jiraUpdatedProp = userProps.Find(OutlookJiraUpdatedProperty);
+
+                        if (tempoIdProp?.Value is string tempoIdStr)
+                        {
+                            if (int.TryParse(tempoIdStr, out var tempoId))
+                            {
+                                var appointmentRef = new OutlookAppointmentRef
+                                {
+                                    TempoId = tempoId,
+                                    EntryId = item.EntryID,
+                                    Start = item.Start,
+                                    End = item.End,
+                                    TempoUpdated = ParseDateTime(tempoUpdatedProp?.Value),
+                                    JiraUpdated = ParseDateTime(jiraUpdatedProp?.Value)
+                                };
+
+                                results.TryAdd(tempoId, new HashSet<OutlookAppointmentRef>());
+                                results[tempoId].Add(appointmentRef);
+                            }
                         }
+
+                        ReleaseComObject(jiraUpdatedProp);
+                        ReleaseComObject(tempoUpdatedProp);
+                        ReleaseComObject(tempoIdProp);
+                        ReleaseComObject(userProps);
                     }
 
-                    ReleaseComObject(jiraUpdatedProp);
-                    ReleaseComObject(tempoUpdatedProp);
-                    ReleaseComObject(tempoIdProp);
-                    ReleaseComObject(userProps);
+                    ReleaseComObject(item);
                 }
-
-                ReleaseComObject(item);
             }
-        }
-        finally
-        {
-            ReleaseComObject(restricted);
-            ReleaseComObject(items);
-            ReleaseComObject(folder);
-            ReleaseComObject(ns);
-        }
+            finally
+            {
+                ReleaseComObject(restricted);
+                ReleaseComObject(items);
+                ReleaseComObject(folder);
+                ReleaseComObject(ns);
+                ReleaseComObject(outlook);
+            }
 
-        return results;
+            return results;
+        });
     }
 
     public void DeleteByEntryId(string entryId)
     {
+        Application? outlook = null;
         NameSpace? ns = null;
 
         try
         {
-            ns = _outlook.GetNamespace("MAPI");
+            outlook = new Application();
+            ns = outlook.GetNamespace("MAPI");
 
             var item = ns.GetItemFromID(entryId) as AppointmentItem;
             item?.Delete();
@@ -102,6 +129,7 @@ public sealed class OutlookClient : IDisposable
         finally
         {
             ReleaseComObject(ns);
+            ReleaseComObject(outlook);
         }
     }
 
@@ -140,50 +168,92 @@ public sealed class OutlookClient : IDisposable
         }
     }
 
-    public void Dispose() => Marshal.FinalReleaseComObject(_outlook);
+    public void Dispose() => _queue.CompleteAdding();
+
+    private TResult ExecuteSTA<TResult>(Func<TResult> func)
+    {
+        TResult? result = default;
+        System.Exception? exception = null;
+
+        using (var doneWaiter = new ManualResetEventSlim(false))
+        {
+            _queue.Add(() =>
+            {
+                try
+                {
+                    result = func();
+                }
+                catch (System.Exception ex)
+                {
+                    exception = ex;
+                }
+                finally
+                {
+                    doneWaiter.Set();
+                }
+            });
+
+            doneWaiter.Wait();
+        }
+
+        if (exception is not null) ExceptionDispatchInfo.Throw(exception);
+
+        return result;
+    }
 
     private AppointmentItem CreateBase(OutlookAppointmentInfo info, DateTime start)
     {
-        var appointment = (AppointmentItem)_outlook.CreateItem(OlItemType.olAppointmentItem);
+        Application? outlook = null;
 
-        appointment.Subject = info.Subject;
-        appointment.BodyFormat = OlBodyFormat.olFormatRichText;
-
-        appointment.Body = BuildAppointmentRtf(info.Subject, info.Summary, info.Url);
-
-        appointment.Start = start;
-        appointment.BusyStatus = OlBusyStatus.olBusy;
-        appointment.ReminderSet = false;
-
-        if (info.Category is not null)
+        try
         {
-            var ns = _outlook.GetNamespace("MAPI");
-            var categories = ns.Categories;
+            outlook = new Application();
 
-            Category? category;
-            try
+            var appointment = (AppointmentItem)outlook.CreateItem(OlItemType.olAppointmentItem);
+
+            appointment.Subject = info.Subject;
+            appointment.BodyFormat = OlBodyFormat.olFormatRichText;
+
+            appointment.Body = BuildAppointmentRtf(info.Subject, info.Summary, info.Url);
+
+            appointment.Start = start;
+            appointment.BusyStatus = OlBusyStatus.olBusy;
+            appointment.ReminderSet = false;
+
+            if (info.Category is not null)
             {
-                category = categories[info.Category.Name];
+                var ns = outlook.GetNamespace("MAPI");
+                var categories = ns.Categories;
+
+                Category? category;
+                try
+                {
+                    category = categories[info.Category.Name];
+                }
+                catch (System.Exception)
+                {
+                    category = null;
+                }
+
+                if (category is null) categories.Add(info.Category.Name, info.Category.Color, OlCategoryShortcutKey.olCategoryShortcutKeyNone);
+
+                appointment.Categories = info.Category.Name;
+
+                ReleaseComObject(categories);
+                ReleaseComObject(ns);
             }
-            catch (System.Exception)
-            {
-                category = null;
-            }
 
-            if (category is null) categories.Add(info.Category.Name, info.Category.Color, OlCategoryShortcutKey.olCategoryShortcutKeyNone);
+            appointment.UserProperties.Add(OutlookTempoIdProperty, OlUserPropertyType.olText, true).Value = info.TempoEntry.Id.ToString();
+            appointment.UserProperties.Add(OutlookTempoUpdatedProperty, OlUserPropertyType.olText, true).Value = info.TempoEntry.LastUpdated.ToString("O");
 
-            appointment.Categories = info.Category.Name;
+            if (info.LastUpdated.HasValue) appointment.UserProperties.Add(OutlookJiraUpdatedProperty, OlUserPropertyType.olText, true).Value = info.LastUpdated.Value.ToString("O");
 
-            ReleaseComObject(categories);
-            ReleaseComObject(ns);
+            return appointment;
         }
-
-        appointment.UserProperties.Add(OutlookTempoIdProperty, OlUserPropertyType.olText, true).Value = info.TempoEntry.Id.ToString();
-        appointment.UserProperties.Add(OutlookTempoUpdatedProperty, OlUserPropertyType.olText, true).Value = info.TempoEntry.LastUpdated.ToString("O");
-
-        if (info.LastUpdated.HasValue) appointment.UserProperties.Add(OutlookJiraUpdatedProperty, OlUserPropertyType.olText, true).Value = info.LastUpdated.Value.ToString("O");
-
-        return appointment;
+        finally
+        {
+            ReleaseComObject(outlook);
+        }
     }
 
     private void CreateSingle(OutlookAppointmentInfo info, DateTime start)
@@ -282,7 +352,7 @@ public sealed class OutlookClient : IDisposable
     private static string EscapeRtf(string? value)
     {
         if (string.IsNullOrEmpty(value)) return "";
-
+        
         return value.Replace(@"\", @"\\").Replace("{", @"\{").Replace("}", @"\}").Replace("\r\n", @"\par ").Replace("\n", @"\par ");
     }
 
