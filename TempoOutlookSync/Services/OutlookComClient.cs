@@ -21,7 +21,7 @@ public sealed class OutlookComClient : IDisposable
 
     public OutlookComClient()
     {
-        _queue = new BlockingCollection<System.Action>();
+        _queue = [];
 
         _outlookThread = new Thread(() =>
         {
@@ -53,7 +53,6 @@ public sealed class OutlookComClient : IDisposable
                 ns = outlook.GetNamespace("MAPI");
                 folder = ns.GetDefaultFolder(OlDefaultFolders.olFolderCalendar);
                 items = folder.Items;
-
 
                 items.IncludeRecurrences = false;
                 restricted = items.Restrict($"@SQL=\"http://schemas.microsoft.com/mapi/string/{{00020329-0000-0000-C000-000000000046}}/{OutlookTempoIdProperty}\" IS NOT NULL");
@@ -114,91 +113,105 @@ public sealed class OutlookComClient : IDisposable
 
     public void DeleteByEntryId(string entryId)
     {
-        Application? outlook = null;
-        NameSpace? ns = null;
-
-        try
+        ExecuteSTA(() =>
         {
-            outlook = new Application();
-            ns = outlook.GetNamespace("MAPI");
+            Application? outlook = null;
+            NameSpace? ns = null;
 
-            var item = ns.GetItemFromID(entryId) as AppointmentItem;
-            item?.Delete();
-            ReleaseComObject(item);
-        }
-        finally
-        {
-            ReleaseComObject(ns);
-            ReleaseComObject(outlook);
-        }
+            try
+            {
+                outlook = new Application();
+                ns = outlook.GetNamespace("MAPI");
+
+                var item = ns.GetItemFromID(entryId) as AppointmentItem;
+                item?.Delete();
+                ReleaseComObject(item);
+            }
+            finally
+            {
+                ReleaseComObject(ns);
+                ReleaseComObject(outlook);
+            }
+
+            return 0;
+        });
     }
 
     public void SaveNonRecurring(OutlookAppointmentInfo info)
     {
-        for (var day = info.TempoEntry.Start.Date; day <= info.TempoEntry.End.Date; day = day.AddDays(1))
+        ExecuteSTA(() =>
         {
-            if (!info.TempoEntry.IncludeNonWorkingDays && (day.DayOfWeek is DayOfWeek.Saturday || day.DayOfWeek is DayOfWeek.Sunday)) continue;
+            for (var day = info.TempoEntry.Start.Date; day <= info.TempoEntry.End.Date; day = day.AddDays(1))
+            {
+                if (!info.TempoEntry.IncludeNonWorkingDays && (day.DayOfWeek is DayOfWeek.Saturday || day.DayOfWeek is DayOfWeek.Sunday)) continue;
 
-            CreateSingle(info, day + info.TempoEntry.StartTime);
-        }
+                CreateSingle(info, day + info.TempoEntry.StartTime);
+            }
+
+            return 0;
+        });
     }
 
     public void SaveWeeklyRecurring(OutlookAppointmentInfo info)
     {
-        var baseStart = info.TempoEntry.Start.Date + info.TempoEntry.StartTime;
-        var appointment = CreateBase(info, baseStart);
+        ExecuteSTA(() =>
+        {
+            var baseStart = info.TempoEntry.Start.Date + info.TempoEntry.StartTime;
+            var appointment = CreateBase(info, baseStart);
 
-        ApplyRecurrence(appointment, info.TempoEntry, baseStart);
+            ApplyRecurrence(appointment, info.TempoEntry, baseStart);
 
-        appointment.Save();
-        ReleaseComObject(appointment);
+            appointment.Save();
+            ReleaseComObject(appointment);
+
+            return 0;
+        });
     }
 
     public void SaveMonthlyRecurrence(OutlookAppointmentInfo info)
     {
-        for (var day = info.TempoEntry.Start.Date; day <= info.TempoEntry.End.Date; day = day.AddDays(1))
+        ExecuteSTA(() =>
         {
-            var monthlyStart = day + info.TempoEntry.StartTime;
-            var monthlyAppointment = CreateBase(info, monthlyStart);
+            for (var day = info.TempoEntry.Start.Date; day <= info.TempoEntry.End.Date; day = day.AddDays(1))
+            {
+                var monthlyStart = day + info.TempoEntry.StartTime;
+                var monthlyAppointment = CreateBase(info, monthlyStart);
 
-            ApplyRecurrence(monthlyAppointment, info.TempoEntry, monthlyStart);
+                ApplyRecurrence(monthlyAppointment, info.TempoEntry, monthlyStart);
 
-            monthlyAppointment.Save();
-            ReleaseComObject(monthlyAppointment);
-        }
+                monthlyAppointment.Save();
+                ReleaseComObject(monthlyAppointment);
+            }
+
+            return 0;
+        });
     }
 
-    public void Dispose() => _queue.CompleteAdding();
+    public void Dispose()
+    {
+        _queue.CompleteAdding();
+        _outlookThread.Join();
+        _queue.Dispose();
+    }
 
     private TResult ExecuteSTA<TResult>(Func<TResult> func)
     {
-        TResult? result = default;
-        System.Exception? exception = null;
+        var tcs = new TaskCompletionSource<TResult>();
 
-        using (var doneWaiter = new ManualResetEventSlim(false))
+        _queue.Add(() =>
         {
-            _queue.Add(() =>
+            try
             {
-                try
-                {
-                    result = func();
-                }
-                catch (System.Exception ex)
-                {
-                    exception = ex;
-                }
-                finally
-                {
-                    doneWaiter.Set();
-                }
-            });
-
-            doneWaiter.Wait();
-        }
-
-        if (exception is not null) ExceptionDispatchInfo.Throw(exception);
-
-        return result;
+                var result = func();
+                tcs.SetResult(result);
+            }
+            catch (System.Exception ex)
+            {
+                tcs.SetException(ex);
+            }
+        });
+        
+        return tcs.Task.GetAwaiter().GetResult();
     }
 
     private AppointmentItem CreateBase(OutlookAppointmentInfo info, DateTime start)
