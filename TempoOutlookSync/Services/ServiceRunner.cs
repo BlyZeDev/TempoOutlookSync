@@ -261,10 +261,6 @@ public sealed class ServiceRunner : IDisposable
         {
             _logger.LogError("Could not authorize, please check your credentials in the configuration", null);
         }
-        catch (COMException ex) when ((uint)ex.ErrorCode is 0x80010001 or 0x8001010A or 0x800706BA or 0x80010108)
-        {
-            _logger.LogDebug("Outlook currently unavailable. This can be safely ignored", ex);
-        }
         catch (Exception ex)
         {
             _logger.LogError("Sync failed", ex);

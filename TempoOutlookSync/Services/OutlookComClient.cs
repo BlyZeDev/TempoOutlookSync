@@ -49,7 +49,7 @@ public sealed class OutlookComClient : IDisposable
 
             try
             {
-                outlook = new Application();
+                outlook = GetApplication();
                 ns = outlook.GetNamespace("MAPI");
                 folder = ns.GetDefaultFolder(OlDefaultFolders.olFolderCalendar);
                 items = folder.Items;
@@ -120,7 +120,7 @@ public sealed class OutlookComClient : IDisposable
 
             try
             {
-                outlook = new Application();
+                outlook = GetApplication();
                 ns = outlook.GetNamespace("MAPI");
 
                 var item = ns.GetItemFromID(entryId) as AppointmentItem;
@@ -214,13 +214,13 @@ public sealed class OutlookComClient : IDisposable
         return tcs.Task.GetAwaiter().GetResult();
     }
 
-    private AppointmentItem CreateBase(OutlookAppointmentInfo info, DateTime start)
+    private static AppointmentItem CreateBase(OutlookAppointmentInfo info, DateTime start)
     {
         Application? outlook = null;
 
         try
         {
-            outlook = new Application();
+            outlook = GetApplication();
 
             var appointment = (AppointmentItem)outlook.CreateItem(OlItemType.olAppointmentItem);
 
@@ -269,7 +269,7 @@ public sealed class OutlookComClient : IDisposable
         }
     }
 
-    private void CreateSingle(OutlookAppointmentInfo info, DateTime start)
+    private static void CreateSingle(OutlookAppointmentInfo info, DateTime start)
     {
         var appointment = CreateBase(info, start);
         appointment.End = start + info.TempoEntry.DurationPerDay;
@@ -374,6 +374,26 @@ public sealed class OutlookComClient : IDisposable
         if (value is not string str) return null;
         if (!DateTimeOffset.TryParse(str, out var date)) return null;
         return date.UtcDateTime;
+    }
+
+    private static Application GetApplication()
+    {
+        ExceptionDispatchInfo? info = null;
+
+        for (int i = 0; i < 3; i++)
+        {
+            try
+            {
+                info = null;
+                return new Application();
+            }
+            catch (COMException ex) when ((uint)ex.ErrorCode is 0x80010001 or 0x8001010A or 0x800706BA or 0x80010108)
+            {
+                info = ExceptionDispatchInfo.Capture(ex);
+            }
+        }
+
+        throw info?.SourceException ?? new InvalidComObjectException("Failed to create Outlook.Application");
     }
 
     private static void ReleaseComObject(object? value)
