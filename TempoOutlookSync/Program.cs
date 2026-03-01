@@ -18,7 +18,7 @@ sealed class Program
                     provider.GetService<ILogger>().LogCritical($"{nameof(TempoOutlookSync)} is already running", null);
                     Environment.FailFast($"{nameof(TempoOutlookSync)} is already running");
                 }
-
+                
                 provider.GetService<ServiceRunner>().RunAsync().GetAwaiter().GetResult();
             }
         }
