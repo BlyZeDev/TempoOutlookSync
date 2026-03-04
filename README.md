@@ -11,7 +11,7 @@ Your `application.toml` should look like this:
 
 Email = "your.email@provider.de"
 JiraApiToken = "your-super-long-secret-jira-api-token"
-UserId = "some-numbers:some-more-numbers-this-time-hex"
+UserId = "some-numbers-this-time-hex"
 TempoApiToken = "your-secret-tempo-api-token"
 ```
 
