@@ -7,7 +7,6 @@ using TempoOutlookSync.Common;
 
 public sealed class TempoOutlookSyncContext : IDisposable
 {
-    public const string Version = "2.0.0";
     public const string UserSettingsFileName = "usersettings.toml";
 
     private readonly HashSet<string> _tempPaths;
@@ -15,17 +14,25 @@ public sealed class TempoOutlookSyncContext : IDisposable
     /// <summary>
     /// The base directory of the application
     /// </summary>
-    public string ApplicationDirectory { get; }
+    public string ApplicationDirectory => AppContext.BaseDirectory;
 
     /// <summary>
     /// The full path to the .exe of this application
     /// </summary>
-    public string ExecutablePath { get; }
+    public string ExecutablePath => Environment.ProcessPath ?? throw new ApplicationException("The path of the executable could not be found");
 
     /// <summary>
     /// The base directory to store application files
     /// </summary>
-    public string AppFilesDirectory { get; }
+    public string AppFilesDirectory
+    {
+        get
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), nameof(TempoOutlookSync));
+            Directory.CreateDirectory(path);
+            return path;
+        }
+    }
 
     /// <summary>
     /// The handle to the to application icon
@@ -33,36 +40,37 @@ public sealed class TempoOutlookSyncContext : IDisposable
     public string IcoPath { get; }
 
     /// <summary>
-    /// The path to the configuration
+    /// The path to the user settings
     /// </summary>
-    public string UserSettingsPath { get; }
+    public string UserSettingsPath => Path.Combine(AppFilesDirectory, UserSettingsFileName);
 
     /// <summary>
     /// The base directory for all log files
     /// </summary>
-    public string LogDirectory { get; }
+    public string LogDirectory
+    {
+        get
+        {
+            var path = Path.Combine(AppFilesDirectory, "Logs");
+            Directory.CreateDirectory(path);
+            return path;
+        }
+    }
+
+    /// <summary>
+    /// The base url to the GitHub repository
+    /// </summary>
+    public string GitHubRepoUrl => $"https://github.com/BlyZeDev/{nameof(TempoOutlookSync)}";
 
     public TempoOutlookSyncContext()
     {
         _tempPaths = [];
-
-        ApplicationDirectory = AppContext.BaseDirectory;
-
-        ExecutablePath = Environment.ProcessPath ?? throw new ApplicationException("The path of the executable could not be found");
-
-        AppFilesDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), nameof(TempoOutlookSync));
-        Directory.CreateDirectory(AppFilesDirectory);
 
         var icoPath = CreateMainIco();
         if (!File.Exists(icoPath)) icoPath = CreateFallbackIco();
         if (!File.Exists(icoPath)) throw new ApplicationException("No icon could be created");
 
         IcoPath = icoPath;
-
-        UserSettingsPath = Path.Combine(AppFilesDirectory, UserSettingsFileName);
-
-        LogDirectory = Path.Combine(AppFilesDirectory, "Logs");
-        Directory.CreateDirectory(LogDirectory);
     }
 
     public string GetTempPath(string fileExtension)

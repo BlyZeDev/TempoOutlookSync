@@ -1,7 +1,7 @@
 ﻿namespace TempoOutlookSync;
 
-using TempoOutlookSync.Common;
 using TempoOutlookSync.Services;
+using Velopack;
 
 sealed class Program
 {
@@ -18,8 +18,14 @@ sealed class Program
                     provider.GetService<ILogger>().LogCritical($"{nameof(TempoOutlookSync)} is already running", null);
                     Environment.FailFast($"{nameof(TempoOutlookSync)} is already running");
                 }
-                
+
+                VelopackApp.Build().Run();
+
+                provider.GetService<UpdateHandler>().UpdateAndRestartIfAvailable();
+
                 provider.GetService<ServiceRunner>().RunAsync().GetAwaiter().GetResult();
+
+                provider.GetService<UpdateHandler>().UpdateAndExitIfAvailable();
             }
         }
     }

@@ -5,7 +5,6 @@ using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
-using System.Runtime.InteropServices;
 using TempoOutlookSync.Common;
 using TempoOutlookSync.Models;
 
@@ -15,6 +14,7 @@ public sealed class ServiceRunner : IDisposable
 
     private readonly ILogger _logger;
     private readonly TempoOutlookSyncContext _context;
+    private readonly UpdateHandler _update;
     private readonly ConfigurationHandler _config;
     private readonly TempoApiClient _tempo;
     private readonly JiraApiClient _jira;
@@ -29,10 +29,11 @@ public sealed class ServiceRunner : IDisposable
     private long lastSyncUtcBinary;
     private bool isSyncing;
 
-    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookComClient outlook)
+    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, UpdateHandler update, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookComClient outlook)
     {
         _logger = logger;
         _context = context;
+        _update = update;
         _config = config;
         _tempo = tempo;
         _jira = jira;
@@ -49,7 +50,7 @@ public sealed class ServiceRunner : IDisposable
             x.TextDisabledColor = new TrayColor(180, 180, 180);
         }, x => x.LineThickness = 1.2f);
         _icon.SetFontSize(16f);
-        _icon.SetToolTip($"{nameof(TempoOutlookSync)} - Version {TempoOutlookSyncContext.Version}");
+        _icon.SetToolTip($"{nameof(TempoOutlookSync)} - Version {_update.Version}");
         _icon.PopupShowing += OnPopupShowing;
 
         manualSyncCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
@@ -83,8 +84,8 @@ public sealed class ServiceRunner : IDisposable
                 x.IsChecked = Util.IsInStartup(nameof(TempoOutlookSync), _context.ExecutablePath);
                 x.Clicked = args =>
                 {
-                    if (Util.IsInStartup(nameof(TempoOutlookSync), _context.ExecutablePath)) Util.RemoveFromStartup(nameof(TempoOutlookSync));
-                    else Util.AddToStartup(nameof(TempoOutlookSync), _context.ExecutablePath);
+                    Util.RemoveFromStartup(nameof(TempoOutlookSync));
+                    if (args.MenuItem.IsChecked.GetValueOrDefault()) Util.AddToStartup(nameof(TempoOutlookSync), _context.ExecutablePath);
 
                     var isActivated = Util.IsInStartup(nameof(TempoOutlookSync), _context.ExecutablePath);
                     args.MenuItem.IsChecked = isActivated;
@@ -95,13 +96,13 @@ public sealed class ServiceRunner : IDisposable
             x.SubMenu.AddItem(x =>
             {
                 x.Text = "Help";
-                x.Clicked = _ => Util.ShellOpen($"https://github.com/BlyZeDev/{nameof(TempoOutlookSync)}");
+                x.Clicked = _ => Util.ShellOpen(_context.GitHubRepoUrl);
             });
         });
         _icon.MenuItems.AddSeparator();
         _icon.MenuItems.AddItem(x =>
         {
-            x.Text = $"Version {TempoOutlookSyncContext.Version}";
+            x.Text = $"Version - {_update.Version}";
             x.TextDisabledColor = x.TextColor;
             x.IsDisabled = true;
         });

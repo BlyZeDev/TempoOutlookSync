@@ -2,7 +2,6 @@
 
 using Microsoft.Win32;
 using System.Collections.Immutable;
-using System.ComponentModel;
 using System.Diagnostics;
 
 public static class Util
@@ -91,7 +90,7 @@ public static class Util
         {
             if (key is null) return false;
 
-            key.DeleteValue(name);
+            key.DeleteValue(name, false);
             return true;
         }
     }
