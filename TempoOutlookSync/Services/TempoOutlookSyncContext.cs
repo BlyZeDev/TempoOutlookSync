@@ -62,6 +62,8 @@ public sealed class TempoOutlookSyncContext : IDisposable
     /// </summary>
     public string GitHubRepoUrl => $"https://github.com/BlyZeDev/{nameof(TempoOutlookSync)}";
 
+    public string HelpUrl => "https://edocag.atlassian.net/wiki/x/7wnyhw";
+
     public TempoOutlookSyncContext()
     {
         _tempPaths = [];

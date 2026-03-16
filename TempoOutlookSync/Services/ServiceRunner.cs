@@ -96,7 +96,7 @@ public sealed class ServiceRunner : IDisposable
             x.SubMenu.AddItem(x =>
             {
                 x.Text = "Help";
-                x.Clicked = _ => Util.ShellOpen(_context.GitHubRepoUrl);
+                x.Clicked = _ => Util.ShellOpen(_context.HelpUrl);
             });
         });
         _icon.MenuItems.AddSeparator();
