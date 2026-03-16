@@ -5,13 +5,15 @@ using Velopack.Sources;
 
 public sealed class UpdateHandler
 {
-    private readonly UpdateManager _update;
+    private readonly ILogger _logger;
+    private readonly UpdateManager _manager;
 
-    public string Version => _update.CurrentVersion is null ? "Invalid" : _update.CurrentVersion.ToFullString();
+    public string Version => _manager.CurrentVersion is null ? "Invalid" : _manager.CurrentVersion.ToFullString();
 
-    public UpdateHandler(TempoOutlookSyncContext context)
+    public UpdateHandler(ILogger logger, TempoOutlookSyncContext context)
     {
-        _update = new UpdateManager(new GithubSource(context.GitHubRepoUrl, null, false), new UpdateOptions
+        _logger = logger;
+        _manager = new UpdateManager(new GithubSource(context.GitHubRepoUrl, null, false), new UpdateOptions
         {
             AllowVersionDowngrade = false
         });
@@ -19,23 +21,41 @@ public sealed class UpdateHandler
 
     public void UpdateAndRestartIfAvailable()
     {
-        if (!_update.IsInstalled) return;
+        try
+        {
+            _logger.LogDebug("Looking for updates");
 
-        var available = _update.CheckForUpdates();
-        if (available is null || available.IsDowngrade) return;
+            if (!_manager.IsInstalled) return;
 
-        _update.DownloadUpdates(available);
-        _update.ApplyUpdatesAndRestart(available);
+            var available = _manager.CheckForUpdates();
+            if (available is null || available.IsDowngrade) return;
+
+            _manager.DownloadUpdates(available);
+            _manager.ApplyUpdatesAndRestart(available);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("Something went wrong trying to update", ex);
+        }
     }
 
     public void UpdateAndExitIfAvailable()
     {
-        if (!_update.IsInstalled) return;
+        try
+        {
+            _logger.LogDebug("Looking for updates");
 
-        var available = _update.CheckForUpdates();
-        if (available is null || available.IsDowngrade) return;
+            if (!_manager.IsInstalled) return;
 
-        _update.DownloadUpdates(available);
-        _update.ApplyUpdatesAndExit(available);
+            var available = _manager.CheckForUpdates();
+            if (available is null || available.IsDowngrade) return;
+
+            _manager.DownloadUpdates(available);
+            _manager.ApplyUpdatesAndExit(available);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("Something went wrong trying to update", ex);
+        }
     }
 }
