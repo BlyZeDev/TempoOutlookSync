@@ -6,11 +6,11 @@ using CsToml;
 public sealed partial record UserSettings
 {
     [TomlValueOnSerialized]
-    public string Email { get; init; } = "";
+    public required string Email { get; init; }
     [TomlValueOnSerialized]
-    public string JiraApiToken { get; init; } = "";
+    public required string JiraApiToken { get; init; }
     [TomlValueOnSerialized]
-    public string UserId { get; init; } = "";
+    public required string UserId { get; init; }
     [TomlValueOnSerialized]
-    public string TempoApiToken { get; init; } = "";
+    public required string TempoApiToken { get; init; }
 }

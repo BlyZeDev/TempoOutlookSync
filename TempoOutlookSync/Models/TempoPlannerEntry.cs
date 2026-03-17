@@ -2,7 +2,6 @@
 
 using System.Globalization;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using TempoOutlookSync.Dto;
 using TempoOutlookSync.Services;
 

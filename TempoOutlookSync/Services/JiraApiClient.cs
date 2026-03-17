@@ -1,7 +1,7 @@
 ﻿namespace TempoOutlookSync.Services;
 
-using System.Buffers.Text;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -41,9 +41,55 @@ public sealed class JiraApiClient : IDisposable
         }
     }
 
+    public async IAsyncEnumerable<string> SearchIssueIdsAsync(string? jql)
+    {
+        if (string.IsNullOrWhiteSpace(jql)) yield break;
+
+        JiraJqlSearchPayloadDto? payload = null;
+        do
+        {
+            try
+            {
+                SetHeaders(_client, _config.UserSettings);
+
+                var request = new
+                {
+                    maxResults = 100,
+                    nextPageToken = payload?.NextPageToken,
+                    jql
+                };
+
+                using (var content = JsonContent.Create(request))
+                {
+                    var url = $"{BaseApiUrl}/search/jql";
+                    using (var response = await _client.PostAsync(url, content))
+                    {
+                        response.EnsureSuccessStatusCode();
+
+                        using (var stream = await response.Content.ReadAsStreamAsync())
+                        {
+                            payload = await JsonSerializer.DeserializeAsync(stream,
+                                JiraJqlSearchPayloadDtoJsonContext.Default.JiraJqlSearchPayloadDto) ?? throw new JsonException("Invalid response");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex.Message, ex);
+                yield break;
+            }
+
+            foreach (var issue in payload.Issues ?? [])
+            {
+                yield return issue.Id;
+            }
+        } while (payload.NextPageToken is not null);
+    }
+
     public async Task<JiraIssue?> GetIssueByIdAsync(string? id)
     {
-        if (id is null) return null;
+        if (string.IsNullOrWhiteSpace(id)) return null;
 
         try
         {
@@ -56,7 +102,7 @@ public sealed class JiraApiClient : IDisposable
 
                 using (var stream = await response.Content.ReadAsStreamAsync())
                 {
-                    var issueDto = await JsonSerializer.DeserializeAsync<JiraIssueDto>(stream, JiraIssueDtoJsonContext.Default.JiraIssueDto);
+                    var issueDto = await JsonSerializer.DeserializeAsync(stream, JiraIssueDtoJsonContext.Default.JiraIssueDto);
 
                     return issueDto is null ? null : new JiraIssue(issueDto, $"{BaseUrl}/browse/");
                 }
@@ -71,7 +117,7 @@ public sealed class JiraApiClient : IDisposable
 
     public async Task<JiraProject?> GetProjectByIdAsync(string? id)
     {
-        if (id is null) return null;
+        if (string.IsNullOrWhiteSpace(id)) return null;
 
         try
         {
@@ -84,7 +130,7 @@ public sealed class JiraApiClient : IDisposable
 
                 using (var stream = await response.Content.ReadAsStreamAsync())
                 {
-                    var projectDto = await JsonSerializer.DeserializeAsync<JiraProjectDto>(stream, JiraProjectDtoJsonContext.Default.JiraProjectDto);
+                    var projectDto = await JsonSerializer.DeserializeAsync(stream, JiraProjectDtoJsonContext.Default.JiraProjectDto);
 
                     return projectDto is null ? null : new JiraProject(projectDto, $"{BaseUrl}/browse/");
                 }

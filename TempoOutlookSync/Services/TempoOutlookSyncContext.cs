@@ -8,6 +8,7 @@ using TempoOutlookSync.Common;
 public sealed class TempoOutlookSyncContext : IDisposable
 {
     public const string UserSettingsFileName = "usersettings.toml";
+    public const string CategoriesFileName = "categories.toml";
 
     private readonly HashSet<string> _tempPaths;
 
@@ -45,6 +46,11 @@ public sealed class TempoOutlookSyncContext : IDisposable
     public string UserSettingsPath => Path.Combine(AppFilesDirectory, UserSettingsFileName);
 
     /// <summary>
+    /// The path to the categories settings
+    /// </summary>
+    public string CategoriesPath => Path.Combine(AppFilesDirectory, CategoriesPath);
+
+    /// <summary>
     /// The base directory for all log files
     /// </summary>
     public string LogDirectory
@@ -62,6 +68,9 @@ public sealed class TempoOutlookSyncContext : IDisposable
     /// </summary>
     public string GitHubRepoUrl => $"https://github.com/BlyZeDev/{nameof(TempoOutlookSync)}";
 
+    /// <summary>
+    /// The url to the documentation
+    /// </summary>
     public string HelpUrl => "https://edocag.atlassian.net/wiki/x/7wnyhw";
 
     public TempoOutlookSyncContext()

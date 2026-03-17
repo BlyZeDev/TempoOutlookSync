@@ -9,7 +9,7 @@ sealed class Program
     {
         using (var provider = new ServiceProvider())
         {
-            provider.GetService<ILogger>().LogInfo($"{nameof(TempoOutlookSync)} has started");
+            provider.GetService<ILogger>().LogInfo($"{nameof(TempoOutlookSync)} {provider.GetService<UpdateHandler>().Version} has started");
 
             using (var guard = provider.GetService<StartupGuard>())
             {

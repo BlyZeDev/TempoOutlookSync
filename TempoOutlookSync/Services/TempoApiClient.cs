@@ -1,6 +1,5 @@
 ﻿namespace TempoOutlookSync.Services;
 
-using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using TempoOutlookSync.Common;
@@ -54,7 +53,7 @@ public sealed class TempoApiClient : IDisposable
 
                 using (var stream = await response.Content.ReadAsStreamAsync())
                 {
-                    payload = await JsonSerializer.DeserializeAsync<TempoPlannerPayloadDto>(stream,
+                    payload = await JsonSerializer.DeserializeAsync(stream,
                         TempoPlannerPayloadDtoJsonContext.Default.TempoPlannerPayloadDto) ?? throw new JsonException("Invalid response");
                 }
             }

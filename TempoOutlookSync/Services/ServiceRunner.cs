@@ -14,7 +14,7 @@ public sealed class ServiceRunner : IDisposable
 
     private readonly ILogger _logger;
     private readonly TempoOutlookSyncContext _context;
-    private readonly UpdateHandler _update;
+    private readonly UpdateHandler _updater;
     private readonly ConfigurationHandler _config;
     private readonly TempoApiClient _tempo;
     private readonly JiraApiClient _jira;
@@ -29,11 +29,11 @@ public sealed class ServiceRunner : IDisposable
     private long lastSyncUtcBinary;
     private bool isSyncing;
 
-    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, UpdateHandler update, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookComClient outlook)
+    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, UpdateHandler updater, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookComClient outlook)
     {
         _logger = logger;
         _context = context;
-        _update = update;
+        _updater = updater;
         _config = config;
         _tempo = tempo;
         _jira = jira;
@@ -50,7 +50,7 @@ public sealed class ServiceRunner : IDisposable
             x.TextDisabledColor = new TrayColor(180, 180, 180);
         }, x => x.LineThickness = 1.2f);
         _icon.SetFontSize(16f);
-        _icon.SetToolTip($"{nameof(TempoOutlookSync)} - Version {_update.Version}");
+        _icon.SetToolTip($"{nameof(TempoOutlookSync)} - Version {_updater.Version}");
         _icon.PopupShowing += OnPopupShowing;
 
         manualSyncCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
@@ -102,7 +102,7 @@ public sealed class ServiceRunner : IDisposable
         _icon.MenuItems.AddSeparator();
         _icon.MenuItems.AddItem(x =>
         {
-            x.Text = $"Version - {_update.Version}";
+            x.Text = $"Version - {_updater.Version}";
             x.TextDisabledColor = x.TextColor;
             x.IsDisabled = true;
         });
@@ -309,8 +309,8 @@ public sealed class ServiceRunner : IDisposable
     private void ControlledCrash(Exception exception)
     {
         _logger.LogCritical("The application crashed", exception);
-
-        var crashLogPath = _context.WriteCrashLog(exception);
+        
+        _context.WriteCrashLog(exception);
         Environment.FailFast(exception.Message, exception);
     }
 
