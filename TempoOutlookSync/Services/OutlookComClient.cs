@@ -2,12 +2,9 @@
 
 using Microsoft.Office.Interop.Outlook;
 using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
-using TempoOutlookSync.Common;
 using TempoOutlookSync.Models;
 
 public sealed class OutlookComClient : IDisposable
@@ -35,11 +32,11 @@ public sealed class OutlookComClient : IDisposable
         _outlookThread.Start();
     }
 
-    public Dictionary<int, HashSet<OutlookAppointmentRef>> GetOutlookTempoAppointments(DateTime start)
+    public HashSet<OutlookAppointmentRef> GetOutlookTempoAppointments()
     {
         return ExecuteSTA(() =>
         {
-            var results = new Dictionary<int, HashSet<OutlookAppointmentRef>>();
+            var results = new HashSet<OutlookAppointmentRef>();
 
             Application? outlook = null;
             NameSpace? ns = null;
@@ -74,7 +71,7 @@ public sealed class OutlookComClient : IDisposable
                         {
                             if (int.TryParse(tempoIdStr, out var tempoId))
                             {
-                                var appointmentRef = new OutlookAppointmentRef
+                                results.Add(new OutlookAppointmentRef
                                 {
                                     TempoId = tempoId,
                                     EntryId = item.EntryID,
@@ -82,10 +79,7 @@ public sealed class OutlookComClient : IDisposable
                                     End = item.End,
                                     TempoUpdated = ParseDateTime(tempoUpdatedProp?.Value),
                                     JiraUpdated = ParseDateTime(jiraUpdatedProp?.Value)
-                                };
-
-                                results.TryAdd(tempoId, new HashSet<OutlookAppointmentRef>());
-                                results[tempoId].Add(appointmentRef);
+                                });
                             }
                         }
 

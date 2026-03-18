@@ -16,14 +16,14 @@ public sealed class ConfigurationHandler : IDisposable
             ArrayStyle = TomlArrayStyle.Header
         }
     };
-    private static UserSettings DefaultUserSettings = new UserSettings
+    private static readonly UserSettings DefaultUserSettings = new UserSettings
     {
         Email = "",
         JiraApiToken = "",
         UserId = "",
         TempoApiToken = ""
     };
-    private static CategorySettings DefaultCategories = new CategorySettings
+    private static readonly CategorySettings DefaultCategories = new CategorySettings
     {
         Categories =
         [
@@ -55,19 +55,19 @@ public sealed class ConfigurationHandler : IDisposable
             {
                 Name = "Kundenprojekt - Aufgabe Kunde/Warte auf 3rd Level",
                 Color = OutlookColor.Orange,
-                JQL = "(category = BC or project = SP) and status = \"Aufgabe Kunde\" or status = \"Waiting for 3rd level\""
+                JQL = "(category = BC or project = SP or project = EDOCPMO) and status = \"Aufgabe Kunde\" or status = \"Waiting for 3rd level\""
             },
             new Category
             {
                 Name = "Kundenprojekt - In Arbeit/Aufgabe Edoc",
                 Color = OutlookColor.DarkOrange,
-                JQL = "(category = BC or project = SP) and status = \"In Progress\" or status = \"Aufgabe edoc\""
+                JQL = "(category = BC or project = SP or project = EDOCPMO) and status = \"In Progress\" or status = \"Aufgabe edoc\""
             },
             new Category
             {
                 Name = "Kundenprojekt - Andere",
                 Color = OutlookColor.Red,
-                JQL = "(category = BC or project = SP) and statusCategory != Done"
+                JQL = "(category = BC or project = SP or project = EDOCPMO) and statusCategory != Done"
             }
         ]
     };
@@ -79,18 +79,18 @@ public sealed class ConfigurationHandler : IDisposable
     private readonly IDisposable _reloadToken;
 
     public UserSettings UserSettings { get; private set; }
-
     public CategorySettings CategorySettings { get; private set; }
 
     public event Action<ObjectChangedEventArgs<UserSettings>>? UserSettingsChanged;
-    public event Action<ObjectChangedEventArgs<CategorySettings>>? CategoriesChanged;
+    public event Action<ObjectChangedEventArgs<CategorySettings>>? CategorySettingsChanged;
 
     public ConfigurationHandler(TempoOutlookSyncContext context, ILogger logger)
     {
         _context = context;
         _logger = logger;
 
-        CreateDefaultUserSettings();
+        TryCreateDefaultUserSettings();
+        TryCreateDefaultCategories();
 
         _root = new ConfigurationBuilder()
             .SetBasePath(_context.AppFilesDirectory)
@@ -114,14 +114,33 @@ public sealed class ConfigurationHandler : IDisposable
             Old = oldSettings,
             New = UserSettings
         });
+
+        var oldCategories = CategorySettings;
+        CategorySettings = LoadCategories();
+        CategorySettingsChanged?.Invoke(new ObjectChangedEventArgs<CategorySettings>
+        {
+            Old = oldCategories,
+            New = CategorySettings
+        });
+
         _logger.LogDebug("The configuration root was changed");
     }
 
-    private UserSettings LoadSettings() => _root.Get<UserSettings>() ?? DefaultUserSettings;
+    private UserSettings LoadSettings()
+    {
+        if (!File.Exists(_context.UserSettingsPath)) return DefaultUserSettings;
 
-    private CategorySettings LoadCategories() => _root.Get<CategorySettings>() ?? DefaultCategories;
+        return _root.Get<UserSettings>() ?? DefaultUserSettings;
+    }
 
-    private void CreateDefaultUserSettings()
+    private CategorySettings LoadCategories()
+    {
+        if (!File.Exists(_context.CategoriesPath)) return DefaultCategories;
+
+        return _root.Get<CategorySettings>() ?? DefaultCategories;
+    }
+
+    private void TryCreateDefaultUserSettings()
     {
         if (File.Exists(_context.UserSettingsPath)) return;
 
@@ -136,14 +155,16 @@ public sealed class ConfigurationHandler : IDisposable
         }
     }
 
-    private void CreateDefaultCategories()
+    private void TryCreateDefaultCategories()
     {
         if (File.Exists(_context.CategoriesPath)) return;
 
         using (var writer = new StreamWriter(_context.CategoriesPath, false, Encoding.UTF8))
         {
             writer.WriteLine($"# {nameof(TempoOutlookSync)} categories");
+            writer.WriteLine("# Don't edit this file unless you know what you're doing!");
             writer.WriteLine();
+            writer.WriteLine("# It is recommended to stop the application before changing this configuration");
             writer.WriteLine($"# Documentation can be found here: {_context.HelpUrl}");
             writer.WriteLine();
 

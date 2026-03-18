@@ -14,7 +14,6 @@ public sealed class JiraProject
     public string Key { get; }
     public string Permalink { get; }
     public string? Name { get; }
-    public string? Category { get; }
 
     public JiraProject(JiraProjectDto dto, string baseUrl)
     {
@@ -22,7 +21,6 @@ public sealed class JiraProject
         Key = dto.Key;
         Permalink = $"{baseUrl}{Key}";
         Name = dto.Name;
-        Category = dto.Category?.Name;
     }
 
     public override string ToString() => JsonSerializer.Serialize(this, _options);

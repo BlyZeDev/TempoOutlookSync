@@ -48,7 +48,7 @@ public sealed class TempoOutlookSyncContext : IDisposable
     /// <summary>
     /// The path to the categories settings
     /// </summary>
-    public string CategoriesPath => Path.Combine(AppFilesDirectory, CategoriesPath);
+    public string CategoriesPath => Path.Combine(AppFilesDirectory, CategoriesFileName);
 
     /// <summary>
     /// The base directory for all log files

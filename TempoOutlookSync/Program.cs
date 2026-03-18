@@ -9,8 +9,6 @@ sealed class Program
     {
         using (var provider = new ServiceProvider())
         {
-            provider.GetService<ILogger>().LogInfo($"{nameof(TempoOutlookSync)} {provider.GetService<UpdateHandler>().Version} has started");
-
             using (var guard = provider.GetService<StartupGuard>())
             {
                 if (!guard.WaitForAccess())
@@ -21,10 +19,10 @@ sealed class Program
 
                 VelopackApp.Build().Run();
 
+                provider.GetService<ILogger>().LogInfo($"{nameof(TempoOutlookSync)} {provider.GetService<UpdateHandler>().Version} is now running");
+
                 provider.GetService<UpdateHandler>().UpdateAndRestartIfAvailable();
-
                 provider.GetService<ServiceRunner>().RunAsync().GetAwaiter().GetResult();
-
                 provider.GetService<UpdateHandler>().UpdateAndExitIfAvailable();
             }
         }

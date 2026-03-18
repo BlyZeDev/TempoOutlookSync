@@ -6,12 +6,8 @@ public sealed record JiraIssueFieldsDto
 {
     [JsonPropertyName("summary")]
     public string? Summary { get; init; }
-    [JsonPropertyName("issuetype")]
-    public JiraIssueTypeDto? IssueType { get; init; }
     [JsonPropertyName("project")]
     public JiraProjectDto? Project { get; init; }
-    [JsonPropertyName("status")]
-    public JiraIssueStatusDto? Status { get; init; }
     [JsonPropertyName("updated")]
     public string? Updated { get; init; }
     [JsonPropertyName("created")]

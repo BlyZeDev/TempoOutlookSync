@@ -10,8 +10,6 @@ public sealed record JiraProjectDto
     public required string Key { get; init; }
     [JsonPropertyName("name")]
     public required string Name { get; init; }
-    [JsonPropertyName("projectCategory")]
-    public JiraIssueProjectCategoryDto? Category { get; init; }
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]

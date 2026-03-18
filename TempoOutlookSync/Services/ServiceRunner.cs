@@ -24,6 +24,7 @@ public sealed class ServiceRunner : IDisposable
     private readonly NotifyIcon _icon;
     private readonly MenuItem _syncNowMenuItem;
     private readonly MenuItem _nextSyncMenuItem;
+    private readonly MenuItem _debugMenuItem;
 
     private CancellationTokenSource manualSyncCts;
     private long lastSyncUtcBinary;
@@ -51,7 +52,6 @@ public sealed class ServiceRunner : IDisposable
         }, x => x.LineThickness = 1.2f);
         _icon.SetFontSize(16f);
         _icon.SetToolTip($"{nameof(TempoOutlookSync)} - Version {_updater.Version}");
-        _icon.PopupShowing += OnPopupShowing;
 
         manualSyncCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
 
@@ -74,7 +74,6 @@ public sealed class ServiceRunner : IDisposable
                 x.Clicked = _ =>
                 {
                     _logger.LogDebug("Opening the application folder");
-                    Directory.CreateDirectory(context.AppFilesDirectory);
                     Util.ShellOpen(_context.AppFilesDirectory);
                 };
             });
@@ -97,6 +96,28 @@ public sealed class ServiceRunner : IDisposable
             {
                 x.Text = "Help";
                 x.Clicked = _ => Util.ShellOpen(_context.HelpUrl);
+            });
+        });
+        _debugMenuItem = _icon.MenuItems.AddItem(x =>
+        {
+            x.Text = "Debug";
+            x.SubMenu.AddItem(x =>
+            {
+                x.Text = "Delete ALL synced items";
+                x.Clicked = async _ =>
+                {
+                    if (SetSyncState(true)) return;
+
+                    await Task.Run(() =>
+                    {
+                        foreach (var appointment in _outlook.GetOutlookTempoAppointments())
+                        {
+                            _outlook.DeleteByEntryId(appointment.EntryId);
+                        }
+                    });
+
+                    SetSyncState(false);
+                };
             });
         });
         _icon.MenuItems.AddSeparator();
@@ -155,13 +176,6 @@ public sealed class ServiceRunner : IDisposable
         _cts.Dispose();
     }
 
-    private void OnPopupShowing(MouseButton mouseButton)
-    {
-        _nextSyncMenuItem.Text = Interlocked.CompareExchange(ref isSyncing, false, false)
-            ? $"Syncing..."
-            : $"Next Sync in {Util.FormatTime(GetRemainingUntilSync(lastSyncUtcBinary))}";
-    }
-
     private void OnLog(LogLevel logLevel, string message, Exception? exception)
     {
         if (logLevel < LogLevel.Error) return;
@@ -184,8 +198,7 @@ public sealed class ServiceRunner : IDisposable
 
     private async Task SyncTempoToOutlookAsync()
     {
-        if (Interlocked.Exchange(ref isSyncing, true)) return;
-        _syncNowMenuItem.IsDisabled = true;
+        if (SetSyncState(true)) return;
 
         try
         {
@@ -197,28 +210,28 @@ public sealed class ServiceRunner : IDisposable
             var today = DateTime.Today.AddDays(-7);
             var todayAddYear = today.AddYears(1);
 
-            var existingTempoAppointments = _outlook.GetOutlookTempoAppointments(today);
+            var categoryMappings = await GetCategoryMappingsAsync();
+
+            var existingTempoAppointments = _outlook.GetOutlookTempoAppointments()
+                .GroupBy(x => x.TempoId)
+                .ToDictionary(x => x.Key, x => x.ToHashSet());
 
             var changeCount = 0;
             await foreach (var entry in _tempo.GetPlannerEntriesAsync(today, todayAddYear))
             {
-                var appointmentInfo = await GetAppointmentInfoAsync(entry);
+                var appointmentInfo = await GetAppointmentInfoAsync(entry, categoryMappings);
 
                 var needsCreation = true;
                 if (existingTempoAppointments.TryGetValue(entry.Id, out var appointments))
                 {
                     needsCreation = false;
 
-                    foreach (var item in appointments)
+                    foreach (var appointment in appointments)
                     {
-                        switch (appointmentInfo)
+                        if (appointment.TempoUpdated != appointmentInfo.TempoEntry.LastUpdated || appointment.JiraUpdated != (appointmentInfo.LastUpdated ?? DateTime.MinValue))
                         {
-                            case null: _outlook.DeleteByEntryId(item.EntryId); break;
-
-                            case var _ when item.TempoUpdated != entry.LastUpdated || item.JiraUpdated != (appointmentInfo.LastUpdated ?? DateTime.MinValue):
-                                _outlook.DeleteByEntryId(item.EntryId);
-                                needsCreation = true;
-                                break;
+                            _outlook.DeleteByEntryId(appointment.EntryId);
+                            needsCreation = true;
                         }
                     }
 
@@ -269,25 +282,46 @@ public sealed class ServiceRunner : IDisposable
         finally
         {
             Interlocked.Exchange(ref lastSyncUtcBinary, DateTime.UtcNow.ToBinary());
-            Interlocked.Exchange(ref isSyncing, false);
-            _syncNowMenuItem.IsDisabled = false;
+            SetSyncState(false);
         }
     }
 
-    private async Task<OutlookAppointmentInfo?> GetAppointmentInfoAsync(TempoPlannerEntry entry)
+    private async Task<IReadOnlyDictionary<string, OutlookCategory>> GetCategoryMappingsAsync()
+    {
+        var mappings = new Dictionary<string, OutlookCategory>();
+
+        foreach (var category in _config.CategorySettings.Categories)
+        {
+            await foreach (var id in _jira.SearchIssueIdsAsync(category.JQL))
+            {
+                mappings.TryAdd(id, new OutlookCategory
+                {
+                    Name = category.Name,
+                    Color = (Microsoft.Office.Interop.Outlook.OlCategoryColor)category.Color
+                });
+            }
+        }
+
+        return mappings;
+    }
+
+    private async Task<OutlookAppointmentInfo> GetAppointmentInfoAsync(TempoPlannerEntry entry, IReadOnlyDictionary<string, OutlookCategory> categoryMappings)
     {
         OutlookAppointmentInfo appointmentInfo;
         switch (entry.PlanItemType)
         {
             case TempoPlanItemType.Issue:
                 var jiraIssue = await _jira.GetIssueByIdAsync(entry.PlanItemId);
-                if (jiraIssue?.StatusCategory is JiraStatusCategory.Done) return null;
-                appointmentInfo = jiraIssue is null ? new OutlookAppointmentInfo(entry) : new OutlookAppointmentInfo(entry, jiraIssue);
+
+                if (jiraIssue is null) appointmentInfo = new OutlookAppointmentInfo(entry);
+                else appointmentInfo = new OutlookAppointmentInfo(entry, jiraIssue, categoryMappings.GetValueOrDefault(jiraIssue.Id));
                 break;
 
             case TempoPlanItemType.Project:
                 var jiraProject = await _jira.GetProjectByIdAsync(entry.PlanItemId);
-                appointmentInfo = jiraProject is null ? new OutlookAppointmentInfo(entry) : new OutlookAppointmentInfo(entry, jiraProject);
+
+                if (jiraProject is null) appointmentInfo = new OutlookAppointmentInfo(entry);
+                else appointmentInfo = new OutlookAppointmentInfo(entry, jiraProject, categoryMappings.GetValueOrDefault(jiraProject.Id));
                 break;
 
             default: appointmentInfo = new OutlookAppointmentInfo(entry); break;
@@ -295,6 +329,19 @@ public sealed class ServiceRunner : IDisposable
         return appointmentInfo;
     }
 
+    private bool SetSyncState(bool isSyncing)
+    {
+        var original = Interlocked.Exchange(ref this.isSyncing, isSyncing);
+
+        _syncNowMenuItem.IsDisabled = isSyncing;
+        _debugMenuItem.IsDisabled = isSyncing;
+
+        _nextSyncMenuItem.Text = isSyncing
+            ? $"Syncing..."
+            : $"Next Sync in {Util.FormatTime(GetRemainingUntilSync(lastSyncUtcBinary))}";
+
+        return original;
+    }
 
     private void OnUnhandledException(object sender, UnhandledExceptionEventArgs args)
         => ControlledCrash(args.ExceptionObject as Exception ?? new Exception("Unknown exception was thrown"));
