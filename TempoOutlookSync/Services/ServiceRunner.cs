@@ -101,13 +101,16 @@ public sealed class ServiceRunner : IDisposable
         _debugMenuItem = _icon.MenuItems.AddItem(x =>
         {
             x.Text = "Debug";
+            x.BackgroundHoverColor = new TrayColor(255, 0, 0);
             x.SubMenu.AddItem(x =>
             {
                 x.Text = "Delete ALL synced items";
+                x.BackgroundHoverColor = new TrayColor(255, 0, 0);
                 x.Clicked = async _ =>
                 {
                     if (SetSyncState(true)) return;
 
+                    _logger.LogInfo("Started deleting all synced entries");
                     await Task.Run(() =>
                     {
                         foreach (var appointment in _outlook.GetOutlookTempoAppointments())
@@ -115,6 +118,7 @@ public sealed class ServiceRunner : IDisposable
                             _outlook.DeleteByEntryId(appointment.EntryId);
                         }
                     });
+                    _logger.LogInfo("Finished deleting all synced entries");
 
                     SetSyncState(false);
                 };
@@ -139,7 +143,7 @@ public sealed class ServiceRunner : IDisposable
     {
         _logger.LogLevel = LogLevel.Debug;
         _logger.Log += OnLog;
-        _config.UserSettingsChanged += UserSettingsChanged;
+        _icon.PopupShowing += OnPopupShowing;
 
         _icon.ShowBalloon(new BalloonNotification
         {
@@ -167,6 +171,9 @@ public sealed class ServiceRunner : IDisposable
             }
             catch (OperationCanceledException) { }
         }
+
+        _icon.PopupShowing -= OnPopupShowing;
+        _logger.Log -= OnLog;
     }
 
     public void Dispose()
@@ -188,12 +195,11 @@ public sealed class ServiceRunner : IDisposable
         });
     }
 
-    private void UserSettingsChanged(ObjectChangedEventArgs<UserSettings> args)
+    private void OnPopupShowing(MouseButton mouseButton)
     {
-        if (!args.Old.UserId.Equals(args.New.UserId, StringComparison.Ordinal)
-            || !args.Old.TempoApiToken.Equals(args.New.TempoApiToken, StringComparison.Ordinal)
-            || !args.Old.Email.Equals(args.New.Email, StringComparison.Ordinal)
-            || !args.Old.JiraApiToken.Equals(args.New.JiraApiToken, StringComparison.Ordinal)) manualSyncCts.Cancel();
+        _nextSyncMenuItem.Text = isSyncing
+            ? $"Syncing..."
+            : $"Next Sync in {Util.FormatTime(GetRemainingUntilSync(lastSyncUtcBinary))}";
     }
 
     private async Task SyncTempoToOutlookAsync()
@@ -335,10 +341,6 @@ public sealed class ServiceRunner : IDisposable
 
         _syncNowMenuItem.IsDisabled = isSyncing;
         _debugMenuItem.IsDisabled = isSyncing;
-
-        _nextSyncMenuItem.Text = isSyncing
-            ? $"Syncing..."
-            : $"Next Sync in {Util.FormatTime(GetRemainingUntilSync(lastSyncUtcBinary))}";
 
         return original;
     }

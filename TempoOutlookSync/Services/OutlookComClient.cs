@@ -232,20 +232,14 @@ public sealed class OutlookComClient : IDisposable
                 var ns = outlook.GetNamespace("MAPI");
                 var categories = ns.Categories;
 
-                Category? category;
-                try
-                {
-                    category = categories[info.Category.Name];
-                }
-                catch (System.Exception)
-                {
-                    category = null;
-                }
+                var category = categories[info.Category.Name];
 
                 if (category is null) categories.Add(info.Category.Name, info.Category.Color, OlCategoryShortcutKey.olCategoryShortcutKeyNone);
+                else if (category.Color != info.Category.Color) category.Color = info.Category.Color;
 
                 appointment.Categories = info.Category.Name;
 
+                ReleaseComObject(category);
                 ReleaseComObject(categories);
                 ReleaseComObject(ns);
             }

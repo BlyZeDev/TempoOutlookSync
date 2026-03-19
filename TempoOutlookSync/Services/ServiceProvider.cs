@@ -6,6 +6,9 @@ using Jab;
 [Singleton<StartupGuard>]
 [Singleton<ServiceRunner>]
 [Singleton<ILoggerTarget, FileLogger>]
+#if DEBUG
+[Singleton<ILoggerTarget, DebugLogger>]
+#endif
 [Singleton<ILogger, LoggerForwarder>]
 [Singleton<TempoOutlookSyncContext>]
 [Singleton<UpdateHandler>]

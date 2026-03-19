@@ -81,9 +81,6 @@ public sealed class ConfigurationHandler : IDisposable
     public UserSettings UserSettings { get; private set; }
     public CategorySettings CategorySettings { get; private set; }
 
-    public event Action<ObjectChangedEventArgs<UserSettings>>? UserSettingsChanged;
-    public event Action<ObjectChangedEventArgs<CategorySettings>>? CategorySettingsChanged;
-
     public ConfigurationHandler(TempoOutlookSyncContext context, ILogger logger)
     {
         _context = context;
@@ -107,23 +104,10 @@ public sealed class ConfigurationHandler : IDisposable
 
     private void Reload()
     {
-        var oldSettings = UserSettings;
         UserSettings = LoadSettings();
-        UserSettingsChanged?.Invoke(new ObjectChangedEventArgs<UserSettings>
-        {
-            Old = oldSettings,
-            New = UserSettings
-        });
-
-        var oldCategories = CategorySettings;
         CategorySettings = LoadCategories();
-        CategorySettingsChanged?.Invoke(new ObjectChangedEventArgs<CategorySettings>
-        {
-            Old = oldCategories,
-            New = CategorySettings
-        });
 
-        _logger.LogDebug("The configuration root was changed");
+        _logger.LogDebug("The configuration was changed");
     }
 
     private UserSettings LoadSettings()

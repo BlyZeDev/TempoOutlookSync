@@ -1,22 +1,12 @@
 ﻿namespace TempoOutlookSync.Services;
 
+using System.Diagnostics;
 using System.Text;
 using TempoOutlookSync.Common;
 
-public sealed class FileLogger : ILoggerTarget
+public sealed class DebugLogger : ILoggerTarget
 {
-    private readonly StreamWriter _writer;
-
-    public FileLogger(TempoOutlookSyncContext context)
-    {
-        var fileStream = new FileStream(
-            Path.Combine(context.LogDirectory, $"{Util.GetFileNameTimestamp()}.log"),
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.Read);
-
-        _writer = new StreamWriter(fileStream, Encoding.UTF8);
-    }
+    public DebugLogger() { }
 
     public void LogMessage(LogLevel logLevel, string text, Exception? exception, CallerInfo? callerInfo)
     {
@@ -34,7 +24,7 @@ public sealed class FileLogger : ILoggerTarget
             builder.AppendLine(exception.ToString());
         }
 
-        _writer.Write(builder.ToString());
-        _writer.Flush();
+        Debug.Write(builder.ToString());
+        Debug.Flush();
     }
 }
