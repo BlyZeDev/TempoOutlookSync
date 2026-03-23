@@ -313,26 +313,39 @@ public sealed class ServiceRunner : IDisposable
 
     private async Task<OutlookAppointmentInfo> GetAppointmentInfoAsync(TempoPlannerEntry entry, IReadOnlyDictionary<string, OutlookCategory> categoryMappings)
     {
-        OutlookAppointmentInfo appointmentInfo;
+        var builder = OutlookAppointmentInfoBuilder.FromTempoEntry(entry);
+
+        var jiraUser = await _jira.GetUserByIdAsync(entry.PlannedByJiraUserId);
+        if (jiraUser is not null) builder.WithJiraUser(jiraUser);
+
         switch (entry.PlanItemType)
         {
             case TempoPlanItemType.Issue:
                 var jiraIssue = await _jira.GetIssueByIdAsync(entry.PlanItemId);
 
-                if (jiraIssue is null) appointmentInfo = new OutlookAppointmentInfo(entry);
-                else appointmentInfo = new OutlookAppointmentInfo(entry, jiraIssue, categoryMappings.GetValueOrDefault(jiraIssue.Id));
+                if (jiraIssue is not null)
+                {
+                    var issueBuilder = builder.WithJiraIssue(jiraIssue);
+                    if (categoryMappings.TryGetValue(jiraIssue.Id, out var category)) issueBuilder.WithOutlookCategory(category);
+
+                    return issueBuilder.Build();
+                }
                 break;
 
             case TempoPlanItemType.Project:
                 var jiraProject = await _jira.GetProjectByIdAsync(entry.PlanItemId);
 
-                if (jiraProject is null) appointmentInfo = new OutlookAppointmentInfo(entry);
-                else appointmentInfo = new OutlookAppointmentInfo(entry, jiraProject, categoryMappings.GetValueOrDefault(jiraProject.Id));
-                break;
+                if (jiraProject is not null)
+                {
+                    var projectBuilder = builder.WithJiraProject(jiraProject);
+                    if (categoryMappings.TryGetValue(jiraProject.Id, out var category)) projectBuilder.WithOutlookCategory(category);
 
-            default: appointmentInfo = new OutlookAppointmentInfo(entry); break;
+                    return projectBuilder.Build();
+                }
+                break;
         }
-        return appointmentInfo;
+
+        return builder.Build();
     }
 
     private bool SetSyncState(bool isSyncing)
@@ -341,6 +354,8 @@ public sealed class ServiceRunner : IDisposable
 
         _syncNowMenuItem.IsDisabled = isSyncing;
         _debugMenuItem.IsDisabled = isSyncing;
+
+        OnPopupShowing(MouseButton.None);
 
         return original;
     }

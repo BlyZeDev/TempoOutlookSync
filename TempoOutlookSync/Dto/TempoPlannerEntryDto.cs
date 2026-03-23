@@ -1,8 +1,6 @@
 ﻿namespace TempoOutlookSync.Dto;
 
-using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 
 public sealed record TempoPlannerEntryDto
 {
@@ -30,6 +28,8 @@ public sealed record TempoPlannerEntryDto
     public string? UpdatedAt { get; init; }
     [JsonPropertyName("planItem")]
     public TempoPlannerEntryPlanItemDto? PlanItem { get; init; }
+    [JsonPropertyName("planCreatorId")]
+    public string? PlanJiraCreatorId { get; init; }
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]

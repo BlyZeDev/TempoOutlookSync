@@ -41,6 +41,34 @@ public sealed class JiraApiClient : IDisposable
         }
     }
 
+    public async Task<JiraUser?> GetUserByIdAsync(string? accountId)
+    {
+        if (string.IsNullOrWhiteSpace(accountId)) return null;
+
+        try
+        {
+            SetHeaders(_client, _config.UserSettings);
+
+            var url = $"{BaseApiUrl}/user?accountId={accountId}";
+            using (var response = await _client.GetAsync(url))
+            {
+                response.EnsureSuccessStatusCode();
+
+                using (var stream = await response.Content.ReadAsStreamAsync())
+                {
+                    var userDto = await JsonSerializer.DeserializeAsync(stream, JiraUserDtoJsonContext.Default.JiraUserDto);
+
+                    return userDto is null ? null : new JiraUser(userDto);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex.Message, ex);
+            return null;
+        }
+    }
+
     public async IAsyncEnumerable<string> SearchIssueIdsAsync(string? jql)
     {
         if (string.IsNullOrWhiteSpace(jql)) yield break;

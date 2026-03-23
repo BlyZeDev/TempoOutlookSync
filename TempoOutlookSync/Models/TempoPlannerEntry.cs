@@ -7,11 +7,6 @@ using TempoOutlookSync.Services;
 
 public sealed record TempoPlannerEntry
 {
-    private static readonly JsonSerializerOptions _options = new JsonSerializerOptions()
-    {
-        WriteIndented = true
-    };
-
     public int Id { get; }
     public DateTime Start { get; }
     public DateTime End { get; }
@@ -24,6 +19,7 @@ public sealed record TempoPlannerEntry
     public DateTime LastUpdated { get; }
     public string? PlanItemId { get; }
     public TempoPlanItemType PlanItemType { get; }
+    public string? PlannedByJiraUserId { get; }
 
     public TempoPlannerEntry(TempoPlannerEntryDto dto)
     {
@@ -63,9 +59,9 @@ public sealed record TempoPlannerEntry
         PlanItemId = dto.PlanItem?.Id;
 
         PlanItemType = ParsePlanItemType(dto.PlanItem?.Type);
-    }
 
-    public override string ToString() => JsonSerializer.Serialize(this, _options);
+        PlannedByJiraUserId = dto.PlanJiraCreatorId;
+    }
 
     private static TempoRecurrenceRule ParseRecurrenceRule(string recurrenceRule)
     {

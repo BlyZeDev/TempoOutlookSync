@@ -221,7 +221,7 @@ public sealed class OutlookComClient : IDisposable
             appointment.Subject = info.Subject;
             appointment.BodyFormat = OlBodyFormat.olFormatRichText;
 
-            appointment.Body = BuildAppointmentRtf(info.Subject, info.Summary, info.Url);
+            appointment.Body = BuildAppointmentRtf(info.Subject, info.Summary, info.PlannedBy, info.Url);
 
             appointment.Start = start;
             appointment.BusyStatus = OlBusyStatus.olBusy;
@@ -318,7 +318,7 @@ public sealed class OutlookComClient : IDisposable
         return mask;
     }
 
-    private static string BuildAppointmentRtf(string subject, string summary, string? permalink)
+    private static string BuildAppointmentRtf(string subject, string summary, string? plannedBy, string? permalink)
     {
         var sb = new StringBuilder();
 
@@ -338,13 +338,16 @@ public sealed class OutlookComClient : IDisposable
         if (!string.IsNullOrWhiteSpace(permalink))
         {
             var url = EscapeRtf(permalink);
-
             sb.AppendLine(@"\cf1");
             sb.AppendLine($@"{{\field{{\*\fldinst HYPERLINK ""{url}""}}{{\fldrslt\ul {url}\ulnone}}}}");
             sb.AppendLine(@"\cf0\par");
         }
 
-        sb.AppendLine(@"\par\fs18\cf2 Please do not modify this appointment manually if it is synced automatically.\cf0");
+        sb.AppendLine(@"\par");
+
+        if (!string.IsNullOrWhiteSpace(plannedBy)) sb.AppendLine($@"\fs20\cf0 Planned by {EscapeRtf(plannedBy)}\par");
+
+        sb.AppendLine(@"\fs18\cf2 Please do not modify this appointment manually if it is synced automatically.\cf0");
         sb.AppendLine(@"}");
 
         return sb.ToString();

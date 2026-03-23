@@ -1,16 +1,10 @@
 ﻿namespace TempoOutlookSync.Models;
 
 using System.Globalization;
-using System.Text.Json;
 using TempoOutlookSync.Dto;
 
 public sealed record JiraIssue
 {
-    private static readonly JsonSerializerOptions _options = new JsonSerializerOptions()
-    {
-        WriteIndented = true
-    };
-
     public string Id { get; }
     public string Key { get; }
     public string Permalink { get; }
@@ -27,6 +21,4 @@ public sealed record JiraIssue
         ProjectName = dto.Fields.Project?.Name;
         LastUpdated = DateTimeOffset.ParseExact(dto.Fields.Updated ?? dto.Fields.Created, "yyyy-MM-ddTHH:mm:ss.FFFFFFFzz00", CultureInfo.InvariantCulture).UtcDateTime;
     }
-
-    public override string ToString() => JsonSerializer.Serialize(this, _options);
 }

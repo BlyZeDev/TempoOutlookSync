@@ -1,15 +1,9 @@
 ﻿namespace TempoOutlookSync.Models;
 
-using System.Text.Json;
 using TempoOutlookSync.Dto;
 
-public sealed class JiraProject
+public sealed record JiraProject
 {
-    private static readonly JsonSerializerOptions _options = new JsonSerializerOptions()
-    {
-        WriteIndented = true
-    };
-
     public string Id { get; }
     public string Key { get; }
     public string Permalink { get; }
@@ -22,6 +16,4 @@ public sealed class JiraProject
         Permalink = $"{baseUrl}{Key}";
         Name = dto.Name;
     }
-
-    public override string ToString() => JsonSerializer.Serialize(this, _options);
 }
