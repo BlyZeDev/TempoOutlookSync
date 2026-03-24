@@ -13,11 +13,15 @@ public sealed class OutlookComClient : IDisposable
     private const string OutlookTempoUpdatedProperty = "TempoUpdated";
     private const string OutlookJiraUpdatedProperty = "JiraUpdated";
 
+    private readonly UpdateHandler _update;
+
     private readonly Thread _outlookThread;
     private readonly BlockingCollection<System.Action> _queue;
 
-    public OutlookComClient()
+    public OutlookComClient(UpdateHandler update)
     {
+        _update = update;
+
         _queue = [];
 
         _outlookThread = new Thread(() =>
@@ -208,7 +212,7 @@ public sealed class OutlookComClient : IDisposable
         return tcs.Task.GetAwaiter().GetResult();
     }
 
-    private static AppointmentItem CreateBase(OutlookAppointmentInfo info, DateTime start)
+    private AppointmentItem CreateBase(OutlookAppointmentInfo info, DateTime start)
     {
         Application? outlook = null;
 
@@ -257,13 +261,51 @@ public sealed class OutlookComClient : IDisposable
         }
     }
 
-    private static void CreateSingle(OutlookAppointmentInfo info, DateTime start)
+    private void CreateSingle(OutlookAppointmentInfo info, DateTime start)
     {
         var appointment = CreateBase(info, start);
         appointment.End = start + info.TempoEntry.DurationPerDay;
 
         appointment.Save();
         ReleaseComObject(appointment);
+    }
+
+    private string BuildAppointmentRtf(string subject, string summary, string? plannedBy, string? permalink)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine(@"{\rtf1\ansi\deff0");
+        sb.AppendLine(@"{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}{\f1\fnil\fcharset0 Calibri;}}");
+        sb.AppendLine(@"{\colortbl ;\red46\green134\blue193;\red100\green100\blue100;}");
+        sb.AppendLine(@"\viewkind4\uc1\pard\sl240\slmult1");
+
+        sb.AppendLine(@"\f0\fs20\cf2\i Auto-imported from Jira Tempo\i0\cf0\par\par");
+
+        if (!string.IsNullOrWhiteSpace(subject)) sb.AppendLine($@"\f0\fs28\cf0\b {EscapeRtf(subject)}\b0\par");
+
+        sb.AppendLine(@"\fs24\par");
+
+        if (!string.IsNullOrWhiteSpace(summary)) sb.AppendLine($@"\fs24 {EscapeRtf(summary)}\par\par");
+
+        if (!string.IsNullOrWhiteSpace(permalink))
+        {
+            var url = EscapeRtf(permalink);
+            sb.AppendLine(@"\cf1");
+            sb.AppendLine($@"{{\field{{\*\fldinst HYPERLINK ""{url}""}}{{\fldrslt\ul {url}\ulnone}}}}");
+            sb.AppendLine(@"\cf0\par");
+        }
+
+        sb.AppendLine(@"\par");
+
+        if (!string.IsNullOrWhiteSpace(plannedBy)) sb.AppendLine($@"\fs22\cf0 Planned by {EscapeRtf(plannedBy)}\par");
+
+        sb.AppendLine(@"\fs20\cf2 Please do not modify this appointment manually if it is synced automatically.\cf0\par\par");
+
+        if (!string.IsNullOrWhiteSpace(_update.Version)) sb.AppendLine($@"\fs18\cf2 {nameof(TempoOutlookSync)} Version {EscapeRtf(_update.Version)}\cf0\par");
+
+        sb.AppendLine(@"}");
+
+        return sb.ToString();
     }
 
     private static void ApplyRecurrence(AppointmentItem appointment, TempoPlannerEntry entry, DateTime start)
@@ -316,41 +358,6 @@ public sealed class OutlookComClient : IDisposable
         }
 
         return mask;
-    }
-
-    private static string BuildAppointmentRtf(string subject, string summary, string? plannedBy, string? permalink)
-    {
-        var sb = new StringBuilder();
-
-        sb.AppendLine(@"{\rtf1\ansi\deff0");
-        sb.AppendLine(@"{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}{\f1\fnil\fcharset0 Calibri;}}");
-        sb.AppendLine(@"{\colortbl ;\red46\green134\blue193;\red100\green100\blue100;}");
-        sb.AppendLine(@"\viewkind4\uc1\pard\sl240\slmult1");
-
-        sb.AppendLine(@"\f0\fs20\cf2\i Auto-imported from Jira Tempo\i0\cf0\par\par");
-
-        if (!string.IsNullOrWhiteSpace(subject)) sb.AppendLine($@"\f0\fs26\cf0\b {EscapeRtf(subject)}\b0\par");
-
-        sb.AppendLine(@"\fs22\par");
-
-        if (!string.IsNullOrWhiteSpace(summary)) sb.AppendLine($@"{EscapeRtf(summary)}\par\par");
-
-        if (!string.IsNullOrWhiteSpace(permalink))
-        {
-            var url = EscapeRtf(permalink);
-            sb.AppendLine(@"\cf1");
-            sb.AppendLine($@"{{\field{{\*\fldinst HYPERLINK ""{url}""}}{{\fldrslt\ul {url}\ulnone}}}}");
-            sb.AppendLine(@"\cf0\par");
-        }
-
-        sb.AppendLine(@"\par");
-
-        if (!string.IsNullOrWhiteSpace(plannedBy)) sb.AppendLine($@"\fs20\cf0 Planned by {EscapeRtf(plannedBy)}\par");
-
-        sb.AppendLine(@"\fs18\cf2 Please do not modify this appointment manually if it is synced automatically.\cf0");
-        sb.AppendLine(@"}");
-
-        return sb.ToString();
     }
 
     private static string EscapeRtf(string? value)

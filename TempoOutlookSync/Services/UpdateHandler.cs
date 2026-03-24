@@ -8,7 +8,7 @@ public sealed class UpdateHandler
     private readonly ILogger _logger;
     private readonly UpdateManager _manager;
 
-    public string Version => _manager.CurrentVersion is null ? "Invalid" : _manager.CurrentVersion.ToFullString();
+    public string? Version => _manager.CurrentVersion?.ToFullString();
 
     public UpdateHandler(ILogger logger, TempoOutlookSyncContext context)
     {
