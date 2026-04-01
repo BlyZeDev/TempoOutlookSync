@@ -36,9 +36,14 @@ public sealed class TempoOutlookSyncContext : IDisposable
     }
 
     /// <summary>
-    /// The handle to the to application icon
+    /// The handle to the to the default application icon
     /// </summary>
-    public string IcoPath { get; }
+    public string DefaultIcoPath { get; }
+
+    /// <summary>
+    /// The handle to the busy application icon
+    /// </summary>
+    public string BusyIcoPath { get; }
 
     /// <summary>
     /// The path to the user settings
@@ -77,11 +82,15 @@ public sealed class TempoOutlookSyncContext : IDisposable
     {
         _tempPaths = [];
 
-        var icoPath = CreateMainIco();
+        var icoPath = CreateIco("icon.ico");
         if (!File.Exists(icoPath)) icoPath = CreateFallbackIco();
         if (!File.Exists(icoPath)) throw new ApplicationException("No icon could be created");
 
-        IcoPath = icoPath;
+        var busyIco = CreateIco("icon_working.ico");
+        if (!File.Exists(busyIco)) busyIco = icoPath;
+
+        DefaultIcoPath = icoPath;
+        BusyIcoPath = busyIco;
     }
 
     public string GetTempPath(string fileExtension)
@@ -144,9 +153,9 @@ public sealed class TempoOutlookSyncContext : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private unsafe string? CreateMainIco()
+    private unsafe string? CreateIco(string resourceName)
     {
-        using (var icoStream = Assembly.GetExecutingAssembly().GetManifestResourceStream($"{nameof(TempoOutlookSync)}.icon.ico"))
+        using (var icoStream = Assembly.GetExecutingAssembly().GetManifestResourceStream($"{nameof(TempoOutlookSync)}.{resourceName}"))
         {
             if (icoStream is null) return null;
 

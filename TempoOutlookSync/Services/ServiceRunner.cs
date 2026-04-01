@@ -44,7 +44,7 @@ public sealed class ServiceRunner : IDisposable
         TaskScheduler.UnobservedTaskException += OnUnhandledTaskException;
 
         _cts = new CancellationTokenSource();
-        _icon = NotifyIcon.Run(_context.IcoPath, _cts.Token, x =>
+        _icon = NotifyIcon.Run(_context.DefaultIcoPath, _cts.Token, x =>
         {
             x.BackgroundHoverColor = new TrayColor(218, 83, 225);
             x.BackgroundDisabledColor = new TrayColor(40, 40, 40);
@@ -357,6 +357,9 @@ public sealed class ServiceRunner : IDisposable
 
         OnPopupShowing(MouseButton.None);
 
+        if (isSyncing) _icon.SetIcon(_context.BusyIcoPath);
+        else _icon.SetIcon(_context.DefaultIcoPath);
+        
         return original;
     }
 

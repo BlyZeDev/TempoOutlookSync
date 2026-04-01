@@ -12,10 +12,12 @@
 
 	<ItemGroup>
 		<None Remove="icon.ico" />
+		<None Remove="icon_working.ico" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<EmbeddedResource Include="icon.ico" />
+		<EmbeddedResource Include="icon_working.ico" />
 	</ItemGroup>
 
 	<ItemGroup>
