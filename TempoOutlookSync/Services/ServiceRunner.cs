@@ -113,7 +113,7 @@ public sealed class ServiceRunner : IDisposable
                     _logger.LogInfo("Started deleting all synced entries");
                     await Task.Run(() =>
                     {
-                        foreach (var appointment in _outlook.GetOutlookTempoAppointments())
+                        foreach (var appointment in _outlook.GetTempoAppointments())
                         {
                             _outlook.DeleteByEntryId(appointment.EntryId);
                         }
@@ -208,23 +208,26 @@ public sealed class ServiceRunner : IDisposable
 
         try
         {
+            _logger.LogInfo("Sync started");
+
             await _tempo.ThrowIfCantConnect();
             await _jira.ThrowIfCantConnect();
-
-            _logger.LogInfo("Sync started");
 
             var today = DateTime.Today.AddDays(-7);
             var todayAddYear = today.AddYears(1);
 
-            var categoryMappings = await GetCategoryMappingsAsync();
+            var categoryMappings = await GetCategoryMappingsAsync();            
 
-            var existingTempoAppointments = _outlook.GetOutlookTempoAppointments()
+            var existingTempoAppointments = _outlook.GetTempoAppointments()
                 .GroupBy(x => x.TempoId)
                 .ToDictionary(x => x.Key, x => x.ToHashSet());
 
+            var totalTempoEntries = 0;
             var changeCount = 0;
             await foreach (var entry in _tempo.GetPlannerEntriesAsync(today, todayAddYear))
             {
+                totalTempoEntries++;
+
                 var appointmentInfo = await GetAppointmentInfoAsync(entry, categoryMappings);
 
                 var needsCreation = true;
@@ -275,7 +278,9 @@ public sealed class ServiceRunner : IDisposable
                 }
             }
 
-            _logger.LogInfo(@$"Synced {changeCount} item(s), next sync in {Util.FormatTime(Interval)}");
+            _outlook.PurgeTrashedTempoAppointments();
+
+            _logger.LogInfo($"Synced {changeCount} Outlook item(s) from {totalTempoEntries} Tempo item(s), next sync in {Util.FormatTime(Interval)}");
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized)
         {
@@ -311,9 +316,9 @@ public sealed class ServiceRunner : IDisposable
         return mappings;
     }
 
-    private async Task<OutlookAppointmentInfo> GetAppointmentInfoAsync(TempoPlannerEntry entry, IReadOnlyDictionary<string, OutlookCategory> categoryMappings)
+    private async Task<OutlookAppointmentCreationInfo> GetAppointmentInfoAsync(TempoPlannerEntry entry, IReadOnlyDictionary<string, OutlookCategory> categoryMappings)
     {
-        var builder = OutlookAppointmentInfoBuilder.FromTempoEntry(entry);
+        var builder = OutlookAppointmentCreationInfoBuilder.FromTempoEntry(entry);
 
         var jiraUser = await _jira.GetUserByIdAsync(entry.PlannedByJiraUserId);
         if (jiraUser is not null) builder.WithJiraUser(jiraUser);

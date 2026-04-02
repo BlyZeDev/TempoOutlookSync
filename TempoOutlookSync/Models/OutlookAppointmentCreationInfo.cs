@@ -1,6 +1,6 @@
 ﻿namespace TempoOutlookSync.Models;
 
-public sealed record OutlookAppointmentInfo
+public sealed record OutlookAppointmentCreationInfo
 {
     public TempoPlannerEntry TempoEntry { get; }
 
@@ -11,7 +11,7 @@ public sealed record OutlookAppointmentInfo
     public DateTime? LastUpdated { get; }
     public OutlookCategory? Category { get; }
 
-    public OutlookAppointmentInfo(TempoPlannerEntry tempoEntry, JiraUser? jiraUser)
+    public OutlookAppointmentCreationInfo(TempoPlannerEntry tempoEntry, JiraUser? jiraUser)
     {
         TempoEntry = tempoEntry;
         Subject = NullIfWhiteSpace(TempoEntry.Description) ?? $"Tempo Id #{TempoEntry.Id}";
@@ -22,7 +22,7 @@ public sealed record OutlookAppointmentInfo
         Category = null;
     }
 
-    public OutlookAppointmentInfo(TempoPlannerEntry tempoEntry, JiraIssue jiraIssue, JiraUser? jiraUser, OutlookCategory? category)
+    public OutlookAppointmentCreationInfo(TempoPlannerEntry tempoEntry, JiraIssue jiraIssue, JiraUser? jiraUser, OutlookCategory? category)
     {
         TempoEntry = tempoEntry;
         Summary = NullIfWhiteSpace(jiraIssue.Summary) ?? NullIfWhiteSpace(jiraIssue.ProjectName) ?? jiraIssue.Key;
@@ -33,7 +33,7 @@ public sealed record OutlookAppointmentInfo
         Category = category;
     }
 
-    public OutlookAppointmentInfo(TempoPlannerEntry tempoEntry, JiraProject jiraProject, JiraUser? jiraUser, OutlookCategory? category)
+    public OutlookAppointmentCreationInfo(TempoPlannerEntry tempoEntry, JiraProject jiraProject, JiraUser? jiraUser, OutlookCategory? category)
     {
         TempoEntry = tempoEntry;
         Summary = NullIfWhiteSpace(jiraProject.Name) ?? jiraProject.Key;

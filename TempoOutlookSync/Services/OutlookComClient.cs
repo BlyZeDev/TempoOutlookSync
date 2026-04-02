@@ -13,6 +13,8 @@ public sealed class OutlookComClient : IDisposable
     private const string OutlookTempoUpdatedProperty = "TempoUpdated";
     private const string OutlookJiraUpdatedProperty = "JiraUpdated";
 
+    private const string TempoSQLFilter = $"@SQL=\"http://schemas.microsoft.com/mapi/string/{{00020329-0000-0000-C000-000000000046}}/{OutlookTempoIdProperty}\" IS NOT NULL";
+
     private readonly UpdateHandler _update;
 
     private readonly Thread _outlookThread;
@@ -36,7 +38,7 @@ public sealed class OutlookComClient : IDisposable
         _outlookThread.Start();
     }
 
-    public HashSet<OutlookAppointmentRef> GetOutlookTempoAppointments()
+    public HashSet<OutlookAppointmentRef> GetTempoAppointments()
     {
         return ExecuteSTA(() =>
         {
@@ -56,7 +58,7 @@ public sealed class OutlookComClient : IDisposable
                 items = folder.Items;
 
                 items.IncludeRecurrences = false;
-                restricted = items.Restrict($"@SQL=\"http://schemas.microsoft.com/mapi/string/{{00020329-0000-0000-C000-000000000046}}/{OutlookTempoIdProperty}\" IS NOT NULL");
+                restricted = items.Restrict(TempoSQLFilter);
                 restricted.Sort("[Start]");
 
                 for (int i = 1; i <= restricted.Count; i++)
@@ -135,7 +137,53 @@ public sealed class OutlookComClient : IDisposable
         });
     }
 
-    public void SaveNonRecurring(OutlookAppointmentInfo info)
+    public void PurgeTrashedTempoAppointments()
+    {
+        ExecuteSTA(() =>
+        {
+            Application? outlook = null;
+            NameSpace? ns = null;
+            MAPIFolder? folder = null;
+            Items? items = null;
+            Items? restricted = null;
+
+            try
+            {
+                outlook = GetApplication();
+                ns = outlook.GetNamespace("MAPI");
+                folder = ns.GetDefaultFolder(OlDefaultFolders.olFolderDeletedItems);
+
+                var userProps = folder.UserDefinedProperties;
+                var existingProp = userProps.Find(OutlookTempoIdProperty);
+                if (existingProp is null) userProps.Add(OutlookTempoIdProperty, OlUserPropertyType.olText);
+
+                ReleaseComObject(userProps);
+                ReleaseComObject(existingProp);
+
+                items = folder.Items;
+                restricted = items.Restrict(TempoSQLFilter);
+
+                for (int i = restricted.Count; i >= 1; i--)
+                {
+                    var item = restricted[i] as AppointmentItem;
+                    item?.Delete();
+                    ReleaseComObject(item);
+                }
+            }
+            finally
+            {
+                ReleaseComObject(restricted);
+                ReleaseComObject(items);
+                ReleaseComObject(folder);
+                ReleaseComObject(ns);
+                ReleaseComObject(outlook);
+            }
+
+            return 0;
+        });
+    }
+
+    public void SaveNonRecurring(OutlookAppointmentCreationInfo info)
     {
         ExecuteSTA(() =>
         {
@@ -150,7 +198,7 @@ public sealed class OutlookComClient : IDisposable
         });
     }
 
-    public void SaveWeeklyRecurring(OutlookAppointmentInfo info)
+    public void SaveWeeklyRecurring(OutlookAppointmentCreationInfo info)
     {
         ExecuteSTA(() =>
         {
@@ -166,7 +214,7 @@ public sealed class OutlookComClient : IDisposable
         });
     }
 
-    public void SaveMonthlyRecurrence(OutlookAppointmentInfo info)
+    public void SaveMonthlyRecurrence(OutlookAppointmentCreationInfo info)
     {
         ExecuteSTA(() =>
         {
@@ -212,7 +260,7 @@ public sealed class OutlookComClient : IDisposable
         return tcs.Task.GetAwaiter().GetResult();
     }
 
-    private AppointmentItem CreateBase(OutlookAppointmentInfo info, DateTime start)
+    private AppointmentItem CreateBase(OutlookAppointmentCreationInfo info, DateTime start)
     {
         Application? outlook = null;
 
@@ -261,7 +309,7 @@ public sealed class OutlookComClient : IDisposable
         }
     }
 
-    private void CreateSingle(OutlookAppointmentInfo info, DateTime start)
+    private void CreateSingle(OutlookAppointmentCreationInfo info, DateTime start)
     {
         var appointment = CreateBase(info, start);
         appointment.End = start + info.TempoEntry.DurationPerDay;
