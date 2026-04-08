@@ -8,6 +8,8 @@ public sealed record JiraUserDto
     public string? EmailAddress { get; init; }
     [JsonPropertyName("displayName")]
     public string? DisplayName { get; init; }
+    [JsonPropertyName("avatarUrls")]
+    public JiraUserAvatarUrlsDto? AvatarUrls { get; init; }
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]

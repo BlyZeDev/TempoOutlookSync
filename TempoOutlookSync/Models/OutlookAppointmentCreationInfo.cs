@@ -7,6 +7,7 @@ public sealed record OutlookAppointmentCreationInfo
     public string Subject { get; }
     public string Summary { get; }
     public string? PlannedBy { get; }
+    public string? PlannedByAvatarUrl { get; }
     public string? Url { get; }
     public DateTime? LastUpdated { get; }
     public OutlookCategory? Category { get; }
@@ -17,30 +18,26 @@ public sealed record OutlookAppointmentCreationInfo
         Subject = NullIfWhiteSpace(TempoEntry.Description) ?? $"Tempo Id #{TempoEntry.Id}";
         Summary = Subject;
         PlannedBy = GetPlannedBy(jiraUser);
+        PlannedByAvatarUrl = jiraUser?.AvatarUrl;
         Url = null;
         LastUpdated = null;
         Category = null;
     }
 
-    public OutlookAppointmentCreationInfo(TempoPlannerEntry tempoEntry, JiraIssue jiraIssue, JiraUser? jiraUser, OutlookCategory? category)
+    public OutlookAppointmentCreationInfo(TempoPlannerEntry tempoEntry, JiraIssue jiraIssue, JiraUser? jiraUser, OutlookCategory? category) : this(tempoEntry, jiraUser)
     {
-        TempoEntry = tempoEntry;
         Summary = NullIfWhiteSpace(jiraIssue.Summary) ?? NullIfWhiteSpace(jiraIssue.ProjectName) ?? jiraIssue.Key;
         Subject = NullIfWhiteSpace(tempoEntry.Description) ?? Summary;
-        PlannedBy = GetPlannedBy(jiraUser);
         Url = jiraIssue.Permalink;
         LastUpdated = jiraIssue.LastUpdated;
         Category = category;
     }
 
-    public OutlookAppointmentCreationInfo(TempoPlannerEntry tempoEntry, JiraProject jiraProject, JiraUser? jiraUser, OutlookCategory? category)
+    public OutlookAppointmentCreationInfo(TempoPlannerEntry tempoEntry, JiraProject jiraProject, JiraUser? jiraUser, OutlookCategory? category) : this(tempoEntry, jiraUser)
     {
-        TempoEntry = tempoEntry;
         Summary = NullIfWhiteSpace(jiraProject.Name) ?? jiraProject.Key;
         Subject = NullIfWhiteSpace(tempoEntry.Description) ?? Summary;
-        PlannedBy = GetPlannedBy(jiraUser);
         Url = jiraProject.Permalink;
-        LastUpdated = null;
         Category = category;
     }
 

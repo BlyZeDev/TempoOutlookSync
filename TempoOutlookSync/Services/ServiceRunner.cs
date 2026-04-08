@@ -118,6 +118,9 @@ public sealed class ServiceRunner : IDisposable
                             _outlook.DeleteByEntryId(appointment.EntryId);
                         }
                     });
+
+                    _outlook.PurgeTrashedTempoAppointments();
+
                     _logger.LogInfo("Finished deleting all synced entries");
 
                     SetSyncState(false);
@@ -214,7 +217,7 @@ public sealed class ServiceRunner : IDisposable
             await _jira.ThrowIfCantConnect();
 
             var today = DateTime.Today.AddDays(-7);
-            var todayAddYear = today.AddYears(1);
+            var todayAddYear = today.AddMonths(6);
 
             var categoryMappings = await GetCategoryMappingsAsync();            
 

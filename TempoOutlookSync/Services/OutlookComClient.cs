@@ -2,6 +2,7 @@
 
 using Microsoft.Office.Interop.Outlook;
 using System.Collections.Concurrent;
+using System.Net;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -271,9 +272,32 @@ public sealed class OutlookComClient : IDisposable
             var appointment = (AppointmentItem)outlook.CreateItem(OlItemType.olAppointmentItem);
 
             appointment.Subject = info.Subject;
-            appointment.BodyFormat = OlBodyFormat.olFormatRichText;
+            appointment.BodyFormat = OlBodyFormat.olFormatHTML;
 
-            appointment.Body = BuildAppointmentRtf(info.Subject, info.Summary, info.PlannedBy, info.Url);
+            MailItem? mail = null;
+            try
+            {
+                mail = (MailItem)outlook.CreateItem(OlItemType.olMailItem);
+
+                mail.BodyFormat = OlBodyFormat.olFormatHTML;
+                mail.HTMLBody = BuildAppointmentHtml(info.Summary, info.Subject, info.PlannedBy, info.PlannedByAvatarUrl, info.Url);
+
+                var mailDoc = mail.GetInspector.WordEditor;
+                var appointmentDoc = appointment.GetInspector.WordEditor;
+
+                mailDoc.Range().FormattedText.Copy();
+                appointmentDoc.Range().FormattedText.Paste();
+
+                appointmentDoc.Saved = true;
+                appointmentDoc.ShowSpellingErrors = false;
+
+                mail.Close(OlInspectorClose.olDiscard);
+                mail.Delete();
+            }
+            finally
+            {
+                ReleaseComObject(mail);
+            }
 
             appointment.Start = start;
             appointment.BusyStatus = OlBusyStatus.olBusy;
@@ -318,40 +342,30 @@ public sealed class OutlookComClient : IDisposable
         ReleaseComObject(appointment);
     }
 
-    private string BuildAppointmentRtf(string subject, string summary, string? plannedBy, string? permalink)
+    private string BuildAppointmentHtml(string title, string description, string? plannedBy, string? plannedByAvatarUrl, string? permalink)
     {
         var sb = new StringBuilder();
 
-        sb.AppendLine(@"{\rtf1\ansi\deff0");
-        sb.AppendLine(@"{\fonttbl{\f0\fnil\fcharset0 Segoe UI;}{\f1\fnil\fcharset0 Calibri;}}");
-        sb.AppendLine(@"{\colortbl ;\red46\green134\blue193;\red100\green100\blue100;}");
-        sb.AppendLine(@"\viewkind4\uc1\pard\sl240\slmult1");
+        sb.AppendLine("<div style=\"font-family: 'Segoe UI', Calibri, sans-serif; font-size: 16px; color: #111111;\">");
+        sb.AppendLine("<p style=\"color: #666666; font-size: 10pt; font-style: italic;\">Auto-imported from Jira Tempo</p>");
 
-        sb.AppendLine(@"\f0\fs20\cf2\i Auto-imported from Jira Tempo\i0\cf0\par\par");
+        if (!string.IsNullOrWhiteSpace(title)) sb.AppendLine($@"<h2 style=""color: #000000; font-size: 22pt; margin-bottom: 8px;"">{WebUtility.HtmlEncode(title)}</h2>");
+        if (!string.IsNullOrWhiteSpace(description)) sb.AppendLine($@"<p style=""font-size: 14pt; margin-bottom: 12px;"">{WebUtility.HtmlEncode(description)}</p>");
+        if (!string.IsNullOrWhiteSpace(permalink)) sb.AppendLine($@"<p><a href=""{WebUtility.HtmlEncode(permalink)}"" style=""color: #9B59B6; font-size: 14pt; text-decoration: underline;"">{WebUtility.HtmlEncode(permalink)}</a></p>");
 
-        if (!string.IsNullOrWhiteSpace(subject)) sb.AppendLine($@"\f0\fs28\cf0\b {EscapeRtf(subject)}\b0\par");
-
-        sb.AppendLine(@"\fs24\par");
-
-        if (!string.IsNullOrWhiteSpace(summary)) sb.AppendLine($@"\fs24 {EscapeRtf(summary)}\par\par");
-
-        if (!string.IsNullOrWhiteSpace(permalink))
+        if (!string.IsNullOrWhiteSpace(plannedBy))
         {
-            var url = EscapeRtf(permalink);
-            sb.AppendLine(@"\cf1");
-            sb.AppendLine($@"{{\field{{\*\fldinst HYPERLINK ""{url}""}}{{\fldrslt\ul {url}\ulnone}}}}");
-            sb.AppendLine(@"\cf0\par");
+            sb.Append($"""
+                <span style='font-size:12pt; line-height:28px; white-space:nowrap;'>
+                    {(string.IsNullOrWhiteSpace(plannedByAvatarUrl) ? "" : $"<img src='{WebUtility.HtmlEncode(plannedByAvatarUrl)}' width='24' height='24' style='vertical-align:middle; display:inline-block;' />&nbsp;")}
+                    <span style='vertical-align:middle;'>Planned by {WebUtility.HtmlEncode(plannedBy)}</span>
+                </span>
+                """);
         }
 
-        sb.AppendLine(@"\par");
+        if (!string.IsNullOrWhiteSpace(_update.Version)) sb.AppendLine($@"<p style=""font-size: 10pt; font-style: italic; color: #666666;"">{nameof(TempoOutlookSync)} Version {WebUtility.HtmlEncode(_update.Version)}</p>");
 
-        if (!string.IsNullOrWhiteSpace(plannedBy)) sb.AppendLine($@"\fs22\cf0 Planned by {EscapeRtf(plannedBy)}\par");
-
-        sb.AppendLine(@"\fs20\cf2 Please do not modify this appointment manually if it is synced automatically.\cf0\par\par");
-
-        if (!string.IsNullOrWhiteSpace(_update.Version)) sb.AppendLine($@"\fs18\cf2 {nameof(TempoOutlookSync)} Version {EscapeRtf(_update.Version)}\cf0\par");
-
-        sb.AppendLine(@"}");
+        sb.Append("</div>");
 
         return sb.ToString();
     }
@@ -406,13 +420,6 @@ public sealed class OutlookComClient : IDisposable
         }
 
         return mask;
-    }
-
-    private static string EscapeRtf(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return "";
-        
-        return value.Replace(@"\", @"\\").Replace("{", @"\{").Replace("}", @"\}").Replace("\r\n", @"\par ").Replace("\n", @"\par ");
     }
 
     private static DateTime? ParseDateTime(object? value)

@@ -123,7 +123,7 @@ public sealed class JiraApiClient : IDisposable
         {
             SetHeaders(_client, _config.UserSettings);
 
-            var url = $"{BaseApiUrl}/issue/{id}?fields=id,key,summary,issuetype,project,status,updated,created";
+            var url = $"{BaseApiUrl}/issue/{id}?fields=id,key,summary,project,updated,created";
             using (var response = await _client.GetAsync(url))
             {
                 response.EnsureSuccessStatusCode();
