@@ -355,11 +355,20 @@ public sealed class OutlookComClient : IDisposable
 
         if (!string.IsNullOrWhiteSpace(plannedBy))
         {
-            sb.Append($"""
-                <span style='font-size:12pt; line-height:28px; white-space:nowrap;'>
-                    {(string.IsNullOrWhiteSpace(plannedByAvatarUrl) ? "" : $"<img src='{WebUtility.HtmlEncode(plannedByAvatarUrl)}' width='24' height='24' style='vertical-align:middle; display:inline-block;' />&nbsp;")}
-                    <span style='vertical-align:middle;'>Planned by {WebUtility.HtmlEncode(plannedBy)}</span>
-                </span>
+            var avatarCell = string.IsNullOrWhiteSpace(plannedByAvatarUrl) ? "" : $"""
+                <td nowrap style='padding:0; margin:0; width:24px; vertical-align:middle;'>
+                    <img src='{WebUtility.HtmlEncode(plannedByAvatarUrl)}' width='24' height='24' style='display:block;' />
+                </td>
+                <td nowrap style='padding:0; margin:0; width:6px;'></td>
+                """;
+
+            sb.AppendLine($"""
+                <table border='0' cellpadding='0' cellspacing='0' style='margin-top:8px; font-size:12pt;'>
+                    <tr>
+                        {avatarCell}
+                        <td nowrap style='padding:0; margin:0; vertical-align:middle;'>Planned by {WebUtility.HtmlEncode(plannedBy)}</td>
+                    </tr>
+                </table>
                 """);
         }
 
