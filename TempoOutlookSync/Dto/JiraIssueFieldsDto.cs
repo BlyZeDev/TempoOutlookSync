@@ -12,6 +12,8 @@ public sealed record JiraIssueFieldsDto
     public string? Updated { get; init; }
     [JsonPropertyName("created")]
     public required string Created { get; init; }
+    [JsonPropertyName("issuelinks")]
+    public List<>? IssueLinks { get; init; }
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]

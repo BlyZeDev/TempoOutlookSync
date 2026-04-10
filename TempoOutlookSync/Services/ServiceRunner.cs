@@ -219,7 +219,7 @@ public sealed class ServiceRunner : IDisposable
             var today = DateTime.Today.AddDays(-7);
             var todayAddYear = today.AddMonths(6);
 
-            var categoryMappings = await GetCategoryMappingsAsync();            
+            var categoryMappings = await GetCategoryMappingsAsync();
 
             var existingTempoAppointments = _outlook.GetTempoAppointments()
                 .GroupBy(x => x.TempoId)
@@ -302,6 +302,8 @@ public sealed class ServiceRunner : IDisposable
 
     private async Task<IReadOnlyDictionary<string, OutlookCategory>> GetCategoryMappingsAsync()
     {
+        var stopwatch = Stopwatch.StartNew();
+
         var mappings = new Dictionary<string, OutlookCategory>();
 
         foreach (var category in _config.CategorySettings.Categories)
@@ -315,6 +317,9 @@ public sealed class ServiceRunner : IDisposable
                 });
             }
         }
+
+        stopwatch.Stop();
+        _logger.LogDebug($"Category Mapping required {Util.FormatTime(stopwatch.Elapsed)}");
 
         return mappings;
     }

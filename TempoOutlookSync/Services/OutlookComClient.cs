@@ -292,7 +292,6 @@ public sealed class OutlookComClient : IDisposable
                 appointmentDoc.ShowSpellingErrors = false;
 
                 mail.Close(OlInspectorClose.olDiscard);
-                mail.Delete();
             }
             finally
             {
