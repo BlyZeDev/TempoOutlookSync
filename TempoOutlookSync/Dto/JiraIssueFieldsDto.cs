@@ -13,7 +13,7 @@ public sealed record JiraIssueFieldsDto
     [JsonPropertyName("created")]
     public required string Created { get; init; }
     [JsonPropertyName("issuelinks")]
-    public List<>? IssueLinks { get; init; }
+    public List<JiraIssueLinkDto>? IssueLinks { get; init; }
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]

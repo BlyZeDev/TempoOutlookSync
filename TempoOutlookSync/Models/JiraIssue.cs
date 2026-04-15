@@ -11,6 +11,7 @@ public sealed record JiraIssue
     public string? Summary { get; }
     public string? ProjectName { get; }
     public DateTime LastUpdated { get; }
+    public IEnumerable<JiraLink> LinkedIssues { get; }
 
     public JiraIssue(JiraIssueDto dto, string baseUrl)
     {
@@ -20,5 +21,6 @@ public sealed record JiraIssue
         Summary = dto.Fields.Summary;
         ProjectName = dto.Fields.Project?.Name;
         LastUpdated = DateTimeOffset.ParseExact(dto.Fields.Updated ?? dto.Fields.Created, "yyyy-MM-ddTHH:mm:ss.FFFFFFFzz00", CultureInfo.InvariantCulture).UtcDateTime;
+        LinkedIssues = dto.Fields.IssueLinks?.Select(x => new JiraLink(x, baseUrl)) ?? [];
     }
 }

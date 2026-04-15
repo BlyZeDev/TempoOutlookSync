@@ -302,8 +302,6 @@ public sealed class ServiceRunner : IDisposable
 
     private async Task<IReadOnlyDictionary<string, OutlookCategory>> GetCategoryMappingsAsync()
     {
-        var stopwatch = Stopwatch.StartNew();
-
         var mappings = new Dictionary<string, OutlookCategory>();
 
         foreach (var category in _config.CategorySettings.Categories)
@@ -317,9 +315,6 @@ public sealed class ServiceRunner : IDisposable
                 });
             }
         }
-
-        stopwatch.Stop();
-        _logger.LogDebug($"Category Mapping required {Util.FormatTime(stopwatch.Elapsed)}");
 
         return mappings;
     }

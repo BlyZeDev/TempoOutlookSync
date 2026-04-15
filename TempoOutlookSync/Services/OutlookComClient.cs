@@ -257,7 +257,7 @@ public sealed class OutlookComClient : IDisposable
                 tcs.SetException(ex);
             }
         });
-        
+
         return tcs.Task.GetAwaiter().GetResult();
     }
 
@@ -280,7 +280,7 @@ public sealed class OutlookComClient : IDisposable
                 mail = (MailItem)outlook.CreateItem(OlItemType.olMailItem);
 
                 mail.BodyFormat = OlBodyFormat.olFormatHTML;
-                mail.HTMLBody = BuildAppointmentHtml(info.Summary, info.Subject, info.PlannedBy, info.PlannedByAvatarUrl, info.Url);
+                mail.HTMLBody = BuildAppointmentHtml(info);
 
                 var mailDoc = mail.GetInspector.WordEditor;
                 var appointmentDoc = appointment.GetInspector.WordEditor;
@@ -341,41 +341,159 @@ public sealed class OutlookComClient : IDisposable
         ReleaseComObject(appointment);
     }
 
-    private string BuildAppointmentHtml(string title, string description, string? plannedBy, string? plannedByAvatarUrl, string? permalink)
+    private string BuildAppointmentHtml(OutlookAppointmentCreationInfo info)
     {
         var sb = new StringBuilder();
 
-        sb.AppendLine("<div style=\"font-family: 'Segoe UI', Calibri, sans-serif; font-size: 16px; color: #111111;\">");
-        sb.AppendLine("<p style=\"color: #666666; font-size: 10pt; font-style: italic;\">Auto-imported from Jira Tempo</p>");
+        sb.AppendLine("""
+            <div style="
+                font-family:'Segoe UI', Calibri, sans-serif;
+                color:#111111;
+                font-size:14pt;
+                line-height:20pt;
+                mso-line-height-rule:exactly;
+            ">
+            """);
 
-        if (!string.IsNullOrWhiteSpace(title)) sb.AppendLine($@"<h2 style=""color: #000000; font-size: 22pt; margin-bottom: 8px;"">{WebUtility.HtmlEncode(title)}</h2>");
-        if (!string.IsNullOrWhiteSpace(description)) sb.AppendLine($@"<p style=""font-size: 14pt; margin-bottom: 12px;"">{WebUtility.HtmlEncode(description)}</p>");
-        if (!string.IsNullOrWhiteSpace(permalink)) sb.AppendLine($@"<p><a href=""{WebUtility.HtmlEncode(permalink)}"" style=""color: #9B59B6; font-size: 14pt; text-decoration: underline;"">{WebUtility.HtmlEncode(permalink)}</a></p>");
+        sb.AppendLine("""
+            <div style="color:#666666; font-size:12pt; font-style:italic;">
+                Auto-imported from Jira Tempo
+            </div>
+            """);
 
-        if (!string.IsNullOrWhiteSpace(plannedBy))
+        if (!string.IsNullOrWhiteSpace(info.Summary))
         {
-            var avatarCell = string.IsNullOrWhiteSpace(plannedByAvatarUrl) ? "" : $"""
-                <td nowrap style='padding:0; margin:0; width:24px; vertical-align:middle;'>
-                    <img src='{WebUtility.HtmlEncode(plannedByAvatarUrl)}' width='24' height='24' style='display:block;' />
-                </td>
-                <td nowrap style='padding:0; margin:0; width:6px;'></td>
-                """;
+            SetSpace(20);
 
             sb.AppendLine($"""
-                <table border='0' cellpadding='0' cellspacing='0' style='margin-top:8px; font-size:12pt;'>
+                <div style="font-size:22pt; font-weight:600;">
+                    {WebUtility.HtmlEncode(info.Summary)}
+                </div>
+                """);
+        }
+
+        if (!string.IsNullOrWhiteSpace(info.Subject))
+        {
+            SetSpace(20);
+
+            sb.AppendLine($"""
+                <div style="font-size:16pt;">
+                    {WebUtility.HtmlEncode(info.Subject)}
+                </div>
+                """);
+        }
+
+        if (!string.IsNullOrWhiteSpace(info.Url))
+        {
+            SetSpace(10);
+
+            var url = WebUtility.HtmlEncode(info.Url);
+
+            sb.AppendLine($"""
+                <div>
+                    <a href="{url}" style="color:#9B59B6; font-size:14pt; text-decoration:underline;">
+                        {url}
+                    </a>
+                </div>
+                """);
+        }
+
+        if (info.LinkedIssues.Count > 0)
+        {
+            SetSpace(30);
+
+            sb.AppendLine($"""
+                <div>
+                    <div style="font-size:16pt; color:#2C3E50; font-weight:600;">
+                        📎 Linked issues ({info.LinkedIssues.Count})
+                    </div>
+                """);
+
+            foreach (var issue in info.LinkedIssues)
+            {
+                var relation = WebUtility.HtmlEncode(issue.RelationToBaseIssue);
+                var summary = WebUtility.HtmlEncode(issue.LinkedIssue.Summary);
+                var url = WebUtility.HtmlEncode(issue.LinkedIssue.Permalink);
+
+                sb.AppendLine("<div>");
+
+                if (!string.IsNullOrWhiteSpace(relation))
+                {
+                    sb.AppendLine($"""
+                        <div style="font-size:12pt; color:#7F8C8D; font-style:italic;">
+                            {relation}
+                        </div>
+                        """);
+                }
+
+                if (!string.IsNullOrWhiteSpace(summary))
+                {
+                    sb.AppendLine($"""
+                        <div style="font-size:13pt;">
+                            {summary}
+                        </div>
+                        """);
+                }
+
+                sb.AppendLine($"""
+                        <div>
+                            <a href="{url}" style="color:#9B59B6; font-size:13pt; text-decoration:underline;">
+                                {url}
+                            </a>
+                        </div>
+                    </div>
+                    """);
+            }
+
+            sb.AppendLine("</div>");
+        }
+
+        if (!string.IsNullOrWhiteSpace(info.PlannedBy))
+        {
+            SetSpace(30);
+
+            var avatarCell = "";
+
+            if (!string.IsNullOrWhiteSpace(info.PlannedByAvatarUrl))
+            {
+                avatarCell = $"""
+                    <td style="vertical-align:middle;">
+                        <img src="{WebUtility.HtmlEncode(info.PlannedByAvatarUrl)}"
+                             width="32" height="32"
+                             style="display:block;" />
+                    </td>
+                    <td style="width:6px;"></td>
+                    """;
+            }
+
+            sb.AppendLine($"""
+                <table role="presentation" cellpadding="0" cellspacing="0">
                     <tr>
                         {avatarCell}
-                        <td nowrap style='padding:0; margin:0; vertical-align:middle;'>Planned by {WebUtility.HtmlEncode(plannedBy)}</td>
+                        <td style="vertical-align:middle;">
+                            Planned by {WebUtility.HtmlEncode(info.PlannedBy)}
+                        </td>
                     </tr>
                 </table>
                 """);
         }
 
-        if (!string.IsNullOrWhiteSpace(_update.Version)) sb.AppendLine($@"<p style=""font-size: 10pt; font-style: italic; color: #666666;"">{nameof(TempoOutlookSync)} Version {WebUtility.HtmlEncode(_update.Version)}</p>");
+        if (!string.IsNullOrWhiteSpace(_update.Version))
+        {
+            SetSpace(10);
 
-        sb.Append("</div>");
+            sb.AppendLine($"""
+                <div style="font-size:12pt; font-style:italic; color:#666666;">
+                    {nameof(TempoOutlookSync)} Version {WebUtility.HtmlEncode(_update.Version)}
+                </div>
+                """);
+        }
+
+        sb.AppendLine("</div>");
 
         return sb.ToString();
+
+        void SetSpace(int spacingPx) => sb.AppendLine($"""<div style="height:{spacingPx}px; line-height:{spacingPx}px; font-size:{spacingPx}px;">&nbsp;</div>""");
     }
 
     private static void ApplyRecurrence(AppointmentItem appointment, TempoPlannerEntry entry, DateTime start)

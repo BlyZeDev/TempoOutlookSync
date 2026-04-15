@@ -11,6 +11,7 @@ public sealed record OutlookAppointmentCreationInfo
     public string? Url { get; }
     public DateTime? LastUpdated { get; }
     public OutlookCategory? Category { get; }
+    public IReadOnlyCollection<JiraLink> LinkedIssues { get; }
 
     public OutlookAppointmentCreationInfo(TempoPlannerEntry tempoEntry, JiraUser? jiraUser)
     {
@@ -22,6 +23,7 @@ public sealed record OutlookAppointmentCreationInfo
         Url = null;
         LastUpdated = null;
         Category = null;
+        LinkedIssues = [];
     }
 
     public OutlookAppointmentCreationInfo(TempoPlannerEntry tempoEntry, JiraIssue jiraIssue, JiraUser? jiraUser, OutlookCategory? category) : this(tempoEntry, jiraUser)
@@ -31,6 +33,7 @@ public sealed record OutlookAppointmentCreationInfo
         Url = jiraIssue.Permalink;
         LastUpdated = jiraIssue.LastUpdated;
         Category = category;
+        LinkedIssues = jiraIssue.LinkedIssues.ToArray();
     }
 
     public OutlookAppointmentCreationInfo(TempoPlannerEntry tempoEntry, JiraProject jiraProject, JiraUser? jiraUser, OutlookCategory? category) : this(tempoEntry, jiraUser)
