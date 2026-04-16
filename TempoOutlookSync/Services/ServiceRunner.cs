@@ -14,6 +14,7 @@ public sealed class ServiceRunner : IDisposable
 
     private readonly ILogger _logger;
     private readonly TempoOutlookSyncContext _context;
+    private readonly SyncStateMachine _syncState;
     private readonly UpdateHandler _updater;
     private readonly ConfigurationHandler _config;
     private readonly TempoApiClient _tempo;
@@ -28,12 +29,12 @@ public sealed class ServiceRunner : IDisposable
 
     private CancellationTokenSource manualSyncCts;
     private long lastSyncUtcBinary;
-    private bool isSyncing;
 
-    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, UpdateHandler updater, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookComClient outlook)
+    public ServiceRunner(ILogger logger, TempoOutlookSyncContext context, SyncStateMachine syncState, UpdateHandler updater, ConfigurationHandler config, TempoApiClient tempo, JiraApiClient jira, OutlookComClient outlook)
     {
         _logger = logger;
         _context = context;
+        _syncState = syncState;
         _updater = updater;
         _config = config;
         _tempo = tempo;
@@ -108,7 +109,7 @@ public sealed class ServiceRunner : IDisposable
                 x.BackgroundHoverColor = new TrayColor(255, 0, 0);
                 x.Clicked = async _ =>
                 {
-                    if (SetSyncState(true)) return;
+                    if (!_syncState.Transition(SyncState.Blocked)) return;
 
                     _logger.LogInfo("Started deleting all synced entries");
                     await Task.Run(() =>
@@ -123,7 +124,7 @@ public sealed class ServiceRunner : IDisposable
 
                     _logger.LogInfo("Finished deleting all synced entries");
 
-                    SetSyncState(false);
+                    _syncState.Transition(SyncState.Idle);
                 };
             });
         });
@@ -146,6 +147,7 @@ public sealed class ServiceRunner : IDisposable
     {
         _logger.LogLevel = LogLevel.Debug;
         _logger.Log += OnLog;
+        _syncState.StateChanged += OnSyncStateChange;
         _icon.PopupShowing += OnPopupShowing;
 
         _icon.ShowBalloon(new BalloonNotification
@@ -176,6 +178,7 @@ public sealed class ServiceRunner : IDisposable
         }
 
         _icon.PopupShowing -= OnPopupShowing;
+        _syncState.StateChanged -= OnSyncStateChange;
         _logger.Log -= OnLog;
     }
 
@@ -198,16 +201,36 @@ public sealed class ServiceRunner : IDisposable
         });
     }
 
+    private void OnSyncStateChange(SyncState state)
+    {
+        var isSyncing = _syncState.IsSyncing;
+
+        _syncNowMenuItem.IsDisabled = isSyncing || !_syncState.CanSync;
+        _debugMenuItem.IsDisabled = isSyncing;
+
+        OnPopupShowing(MouseButton.None);
+
+        if (isSyncing) _icon.SetIcon(_context.BusyIcoPath);
+        else _icon.SetIcon(_context.DefaultIcoPath);
+    }
+
     private void OnPopupShowing(MouseButton mouseButton)
     {
-        _nextSyncMenuItem.Text = isSyncing
-            ? $"Syncing..."
-            : $"Next Sync in {Util.FormatTime(GetRemainingUntilSync(lastSyncUtcBinary))}";
+        _nextSyncMenuItem.Text = _syncState.State switch
+        {
+            SyncState.Syncing => "Syncing...",
+            SyncState.Blocked => "Blocked...",
+            _ => $"Next Sync in {Util.FormatTime(GetRemainingUntilSync(lastSyncUtcBinary))}"
+        };
     }
 
     private async Task SyncTempoToOutlookAsync()
     {
-        if (SetSyncState(true)) return;
+        if (!_syncState.Transition(SyncState.Syncing))
+        {
+            _logger.LogDebug($"Sync skipped - State not {SyncState.Idle}");
+            return;
+        }
 
         try
         {
@@ -296,7 +319,7 @@ public sealed class ServiceRunner : IDisposable
         finally
         {
             Interlocked.Exchange(ref lastSyncUtcBinary, DateTime.UtcNow.ToBinary());
-            SetSyncState(false);
+            _syncState.Transition(SyncState.Idle);
         }
     }
 
@@ -354,21 +377,6 @@ public sealed class ServiceRunner : IDisposable
         }
 
         return builder.Build();
-    }
-
-    private bool SetSyncState(bool isSyncing)
-    {
-        var original = Interlocked.Exchange(ref this.isSyncing, isSyncing);
-
-        _syncNowMenuItem.IsDisabled = isSyncing;
-        _debugMenuItem.IsDisabled = isSyncing;
-
-        OnPopupShowing(MouseButton.None);
-
-        if (isSyncing) _icon.SetIcon(_context.BusyIcoPath);
-        else _icon.SetIcon(_context.DefaultIcoPath);
-        
-        return original;
     }
 
     private void OnUnhandledException(object sender, UnhandledExceptionEventArgs args)

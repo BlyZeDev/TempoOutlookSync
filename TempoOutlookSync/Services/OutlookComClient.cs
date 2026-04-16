@@ -1,12 +1,11 @@
 ﻿namespace TempoOutlookSync.Services;
 
-using Microsoft.Office.Interop.Outlook;
 using System.Collections.Concurrent;
-using System.Net;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
-using System.Text;
 using TempoOutlookSync.Models;
+
+using OutlookCom = Microsoft.Office.Interop.Outlook;
 
 public sealed class OutlookComClient : IDisposable
 {
@@ -16,27 +15,34 @@ public sealed class OutlookComClient : IDisposable
 
     private const string TempoSQLFilter = $"@SQL=\"http://schemas.microsoft.com/mapi/string/{{00020329-0000-0000-C000-000000000046}}/{OutlookTempoIdProperty}\" IS NOT NULL";
 
+    private const uint RPC_E_CALL_REJECTED = 0x80010001;
+    private const uint RPC_E_SERVERCALL_RETRYLATER = 0x8001010A;
+    private const uint RPC_E_DISCONNECTED = 0x80010108;
+    private const uint RPC_E_SERVER_UNAVAILABLE = 0x800706BA;
+
+    private readonly TempoOutlookSyncContext _context;
     private readonly UpdateHandler _update;
 
-    private readonly Thread _outlookThread;
-    private readonly BlockingCollection<System.Action> _queue;
+    private readonly Thread _comThread;
+    private readonly BlockingCollection<Action> _queue;
 
-    public OutlookComClient(UpdateHandler update)
+    public OutlookComClient(TempoOutlookSyncContext context, UpdateHandler update)
     {
+        _context = context;
         _update = update;
 
         _queue = [];
 
-        _outlookThread = new Thread(() =>
+        _comThread = new Thread(() =>
         {
             foreach (var action in _queue.GetConsumingEnumerable())
             {
                 action();
             }
         });
-        _outlookThread.IsBackground = true;
-        _outlookThread.SetApartmentState(ApartmentState.STA);
-        _outlookThread.Start();
+        _comThread.IsBackground = true;
+        _comThread.SetApartmentState(ApartmentState.STA);
+        _comThread.Start();
     }
 
     public HashSet<OutlookAppointmentRef> GetTempoAppointments()
@@ -45,17 +51,17 @@ public sealed class OutlookComClient : IDisposable
         {
             var results = new HashSet<OutlookAppointmentRef>();
 
-            Application? outlook = null;
-            NameSpace? ns = null;
-            MAPIFolder? folder = null;
-            Items? items = null;
-            Items? restricted = null;
+            OutlookCom.Application? outlook = null;
+            OutlookCom.NameSpace? ns = null;
+            OutlookCom.MAPIFolder? folder = null;
+            OutlookCom.Items? items = null;
+            OutlookCom.Items? restricted = null;
 
             try
             {
-                outlook = GetApplication();
+                outlook = GetOutlookApp();
                 ns = outlook.GetNamespace("MAPI");
-                folder = ns.GetDefaultFolder(OlDefaultFolders.olFolderCalendar);
+                folder = ns.GetDefaultFolder(OutlookCom.OlDefaultFolders.olFolderCalendar);
                 items = folder.Items;
 
                 items.IncludeRecurrences = false;
@@ -64,7 +70,7 @@ public sealed class OutlookComClient : IDisposable
 
                 for (int i = 1; i <= restricted.Count; i++)
                 {
-                    var item = restricted[i] as AppointmentItem;
+                    var item = restricted[i] as OutlookCom.AppointmentItem;
 
                     if (item is not null)
                     {
@@ -116,15 +122,15 @@ public sealed class OutlookComClient : IDisposable
     {
         ExecuteSTA(() =>
         {
-            Application? outlook = null;
-            NameSpace? ns = null;
+            OutlookCom.Application? outlook = null;
+            OutlookCom.NameSpace? ns = null;
 
             try
             {
-                outlook = GetApplication();
+                outlook = GetOutlookApp();
                 ns = outlook.GetNamespace("MAPI");
 
-                var item = ns.GetItemFromID(entryId) as AppointmentItem;
+                var item = ns.GetItemFromID(entryId) as OutlookCom.AppointmentItem;
                 item?.Delete();
                 ReleaseComObject(item);
             }
@@ -142,21 +148,21 @@ public sealed class OutlookComClient : IDisposable
     {
         ExecuteSTA(() =>
         {
-            Application? outlook = null;
-            NameSpace? ns = null;
-            MAPIFolder? folder = null;
-            Items? items = null;
-            Items? restricted = null;
+            OutlookCom.Application? outlook = null;
+            OutlookCom.NameSpace? ns = null;
+            OutlookCom.MAPIFolder? folder = null;
+            OutlookCom.Items? items = null;
+            OutlookCom.Items? restricted = null;
 
             try
             {
-                outlook = GetApplication();
+                outlook = GetOutlookApp();
                 ns = outlook.GetNamespace("MAPI");
-                folder = ns.GetDefaultFolder(OlDefaultFolders.olFolderDeletedItems);
+                folder = ns.GetDefaultFolder(OutlookCom.OlDefaultFolders.olFolderDeletedItems);
 
                 var userProps = folder.UserDefinedProperties;
                 var existingProp = userProps.Find(OutlookTempoIdProperty);
-                if (existingProp is null) userProps.Add(OutlookTempoIdProperty, OlUserPropertyType.olText);
+                if (existingProp is null) userProps.Add(OutlookTempoIdProperty, OutlookCom.OlUserPropertyType.olText);
 
                 ReleaseComObject(userProps);
                 ReleaseComObject(existingProp);
@@ -166,7 +172,7 @@ public sealed class OutlookComClient : IDisposable
 
                 for (int i = restricted.Count; i >= 1; i--)
                 {
-                    var item = restricted[i] as AppointmentItem;
+                    var item = restricted[i] as OutlookCom.AppointmentItem;
                     item?.Delete();
                     ReleaseComObject(item);
                 }
@@ -237,7 +243,7 @@ public sealed class OutlookComClient : IDisposable
     public void Dispose()
     {
         _queue.CompleteAdding();
-        _outlookThread.Join();
+        _comThread.Join();
         _queue.Dispose();
     }
 
@@ -252,7 +258,7 @@ public sealed class OutlookComClient : IDisposable
                 var result = func();
                 tcs.SetResult(result);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 tcs.SetException(ex);
             }
@@ -261,33 +267,33 @@ public sealed class OutlookComClient : IDisposable
         return tcs.Task.GetAwaiter().GetResult();
     }
 
-    private AppointmentItem CreateBase(OutlookAppointmentCreationInfo info, DateTime start)
+    private OutlookCom.AppointmentItem CreateBase(OutlookAppointmentCreationInfo info, DateTime start)
     {
-        Application? outlook = null;
+        OutlookCom.Application? outlook = null;
 
         try
         {
-            outlook = GetApplication();
+            outlook = GetOutlookApp();
 
-            var appointment = (AppointmentItem)outlook.CreateItem(OlItemType.olAppointmentItem);
+            var appointment = (OutlookCom.AppointmentItem)outlook.CreateItem(OutlookCom.OlItemType.olAppointmentItem);
 
             appointment.Subject = info.Subject;
-            appointment.BodyFormat = OlBodyFormat.olFormatHTML;
+            appointment.BodyFormat = OutlookCom.OlBodyFormat.olFormatHTML;
 
-            NameSpace? ns = null;
-            MAPIFolder? deletedFolder = null;
-            Items? deletedFolderItems = null;
-            MailItem? mail = null;
-            Inspector? mailInspector = null;
-            Inspector? appointmentInspector = null;
+            OutlookCom.NameSpace? ns = null;
+            OutlookCom.MAPIFolder? deletedFolder = null;
+            OutlookCom.Items? deletedFolderItems = null;
+            OutlookCom.MailItem? mail = null;
+            OutlookCom.Inspector? mailInspector = null;
+            OutlookCom.Inspector? appointmentInspector = null;
             try
             {
                 ns = outlook.GetNamespace("MAPI");
 
-                deletedFolder = ns.GetDefaultFolder(OlDefaultFolders.olFolderDeletedItems);
+                deletedFolder = ns.GetDefaultFolder(OutlookCom.OlDefaultFolders.olFolderDeletedItems);
                 deletedFolderItems = deletedFolder.Items;
-                mail = (MailItem)deletedFolderItems.Add(OlItemType.olMailItem);
-                mail.HTMLBody = BuildAppointmentHtml(info);
+                mail = (OutlookCom.MailItem)deletedFolderItems.Add(OutlookCom.OlItemType.olMailItem);
+                mail.HTMLBody = info.BuildHtmlBody(_update.Version);
 
                 mailInspector = mail.GetInspector;
                 appointmentInspector = appointment.GetInspector;
@@ -312,7 +318,7 @@ public sealed class OutlookComClient : IDisposable
             }
 
             appointment.Start = start;
-            appointment.BusyStatus = OlBusyStatus.olBusy;
+            appointment.BusyStatus = OutlookCom.OlBusyStatus.olBusy;
             appointment.ReminderSet = false;
 
             if (info.Category is not null)
@@ -322,7 +328,7 @@ public sealed class OutlookComClient : IDisposable
 
                 var category = categories[info.Category.Name];
 
-                if (category is null) categories.Add(info.Category.Name, info.Category.Color, OlCategoryShortcutKey.olCategoryShortcutKeyNone);
+                if (category is null) categories.Add(info.Category.Name, info.Category.Color, OutlookCom.OlCategoryShortcutKey.olCategoryShortcutKeyNone);
                 else if (category.Color != info.Category.Color) category.Color = info.Category.Color;
 
                 appointment.Categories = info.Category.Name;
@@ -332,10 +338,10 @@ public sealed class OutlookComClient : IDisposable
                 ReleaseComObject(ns);
             }
 
-            appointment.UserProperties.Add(OutlookTempoIdProperty, OlUserPropertyType.olText, true).Value = info.TempoEntry.Id.ToString();
-            appointment.UserProperties.Add(OutlookTempoUpdatedProperty, OlUserPropertyType.olText, true).Value = info.TempoEntry.LastUpdated.ToString("O");
+            appointment.UserProperties.Add(OutlookTempoIdProperty, OutlookCom.OlUserPropertyType.olText, true).Value = info.TempoEntry.Id.ToString();
+            appointment.UserProperties.Add(OutlookTempoUpdatedProperty, OutlookCom.OlUserPropertyType.olText, true).Value = info.TempoEntry.LastUpdated.ToString("O");
 
-            if (info.LastUpdated.HasValue) appointment.UserProperties.Add(OutlookJiraUpdatedProperty, OlUserPropertyType.olText, true).Value = info.LastUpdated.Value.ToString("O");
+            if (info.LastUpdated.HasValue) appointment.UserProperties.Add(OutlookJiraUpdatedProperty, OutlookCom.OlUserPropertyType.olText, true).Value = info.LastUpdated.Value.ToString("O");
 
             return appointment;
         }
@@ -354,173 +360,18 @@ public sealed class OutlookComClient : IDisposable
         ReleaseComObject(appointment);
     }
 
-    private string BuildAppointmentHtml(OutlookAppointmentCreationInfo info)
-    {
-        var sb = new StringBuilder();
-
-        sb.AppendLine("""
-            <div style="
-                font-family:'Segoe UI', Calibri, sans-serif;
-                color:#111111;
-                font-size:14pt;
-                line-height:20pt;
-                mso-line-height-rule:exactly;
-            ">
-            """);
-
-        sb.AppendLine("""
-            <div style="color:#666666; font-size:11pt; font-style:italic;">
-                Auto-imported from Jira Tempo
-            </div>
-            """);
-
-        if (!string.IsNullOrWhiteSpace(info.Summary))
-        {
-            SetSpace(20);
-
-            sb.AppendLine($"""
-                <div style="font-size:20pt; font-weight:600;">
-                    {WebUtility.HtmlEncode(info.Summary)}
-                </div>
-                """);
-        }
-
-        if (!string.IsNullOrWhiteSpace(info.Subject))
-        {
-            SetSpace(20);
-
-            sb.AppendLine($"""
-                <div style="font-size:15pt;">
-                    {WebUtility.HtmlEncode(info.Subject)}
-                </div>
-                """);
-        }
-
-        if (!string.IsNullOrWhiteSpace(info.Url))
-        {
-            SetSpace(10);
-
-            var url = WebUtility.HtmlEncode(info.Url);
-
-            sb.AppendLine($"""
-                <div>
-                    <a href="{url}" style="color:#9B59B6; font-size:13pt; text-decoration:underline;">
-                        {url}
-                    </a>
-                </div>
-                """);
-        }
-
-        if (info.LinkedIssues.Count > 0)
-        {
-            SetSpace(30);
-
-            sb.AppendLine($"""
-                <div>
-                    <div style="font-size:15pt; color:#2C3E50; font-weight:600;">
-                        📎 Linked issues ({info.LinkedIssues.Count})
-                    </div>
-                """);
-
-            foreach (var issue in info.LinkedIssues)
-            {
-                var relation = WebUtility.HtmlEncode(issue.RelationToBaseIssue);
-                var summary = WebUtility.HtmlEncode(issue.LinkedIssue.Summary);
-                var url = WebUtility.HtmlEncode(issue.LinkedIssue.Permalink);
-
-                sb.AppendLine("<div>");
-
-                if (!string.IsNullOrWhiteSpace(relation))
-                {
-                    sb.AppendLine($"""
-                        <div style="font-size:11pt; color:#7F8C8D; font-style:italic;">
-                            {relation}
-                        </div>
-                        """);
-                }
-
-                if (!string.IsNullOrWhiteSpace(summary))
-                {
-                    sb.AppendLine($"""
-                        <div style="font-size:12pt;">
-                            {summary}
-                        </div>
-                        """);
-                }
-
-                sb.AppendLine($"""
-                        <div>
-                            <a href="{url}" style="color:#9B59B6; font-size:12pt; text-decoration:underline;">
-                                {url}
-                            </a>
-                        </div>
-                    </div>
-                    """);
-            }
-
-            sb.AppendLine("</div>");
-        }
-
-        if (!string.IsNullOrWhiteSpace(info.PlannedBy))
-        {
-            SetSpace(30);
-
-            var avatarCell = "";
-
-            if (!string.IsNullOrWhiteSpace(info.PlannedByAvatarUrl))
-            {
-                avatarCell = $"""
-                    <td style="vertical-align:middle;">
-                        <img src="{WebUtility.HtmlEncode(info.PlannedByAvatarUrl)}"
-                             width="32" height="32"
-                             style="display:block;" />
-                    </td>
-                    <td style="width:6px;"></td>
-                    """;
-            }
-
-            sb.AppendLine($"""
-                <table role="presentation" cellpadding="0" cellspacing="0">
-                    <tr>
-                        {avatarCell}
-                        <td style="vertical-align:middle;">
-                            Planned by {WebUtility.HtmlEncode(info.PlannedBy)}
-                        </td>
-                    </tr>
-                </table>
-                """);
-        }
-
-        if (!string.IsNullOrWhiteSpace(_update.Version))
-        {
-            SetSpace(10);
-
-            sb.AppendLine($"""
-                <div style="font-size:11pt; font-style:italic; color:#666666;">
-                    {nameof(TempoOutlookSync)} Version {WebUtility.HtmlEncode(_update.Version)}
-                </div>
-                """);
-        }
-
-        sb.AppendLine("</div>");
-
-        return sb.ToString();
-
-        void SetSpace(int spacingPx) => sb.AppendLine($"""<div style="height:{spacingPx}px; line-height:{spacingPx}px; font-size:{spacingPx}px;">&nbsp;</div>""");
-    }
-
-    private static void ApplyRecurrence(AppointmentItem appointment, TempoPlannerEntry entry, DateTime start)
+    private static void ApplyRecurrence(OutlookCom.AppointmentItem appointment, TempoPlannerEntry entry, DateTime start)
     {
         var recurrence = appointment.GetRecurrencePattern();
 
         if (entry.RecurrenceRule is TempoRecurrenceRule.Monthly)
         {
-            recurrence.RecurrenceType = OlRecurrenceType.olRecursMonthly;
+            recurrence.RecurrenceType = OutlookCom.OlRecurrenceType.olRecursMonthly;
             recurrence.DayOfMonth = entry.Start.Day;
         }
         else
         {
-            recurrence.RecurrenceType = OlRecurrenceType.olRecursWeekly;
+            recurrence.RecurrenceType = OutlookCom.OlRecurrenceType.olRecursWeekly;
             recurrence.Interval = entry.RecurrenceRule is TempoRecurrenceRule.BiWeekly ? 2 : 1;
             recurrence.DayOfWeekMask = BuildMask(entry.Start.Date, entry.End.Date, entry.IncludeNonWorkingDays);
         }
@@ -534,28 +385,28 @@ public sealed class OutlookComClient : IDisposable
         recurrence.EndTime = start + entry.DurationPerDay;
     }
 
-    private static OlDaysOfWeek BuildMask(DateTime start, DateTime end, bool includeNonWorkingDays)
+    private static OutlookCom.OlDaysOfWeek BuildMask(DateTime start, DateTime end, bool includeNonWorkingDays)
     {
-        OlDaysOfWeek mask = 0;
+        OutlookCom.OlDaysOfWeek mask = 0;
 
         for (var date = start; date <= end; date = date.AddDays(1))
         {
             switch (date.DayOfWeek)
             {
-                case DayOfWeek.Monday: mask |= OlDaysOfWeek.olMonday; break;
-                case DayOfWeek.Tuesday: mask |= OlDaysOfWeek.olTuesday; break;
-                case DayOfWeek.Wednesday: mask |= OlDaysOfWeek.olWednesday; break;
-                case DayOfWeek.Thursday: mask |= OlDaysOfWeek.olThursday; break;
-                case DayOfWeek.Friday: mask |= OlDaysOfWeek.olFriday; break;
-                case DayOfWeek.Saturday: mask |= OlDaysOfWeek.olSaturday; break;
-                case DayOfWeek.Sunday: mask |= OlDaysOfWeek.olSunday; break;
+                case DayOfWeek.Monday: mask |= OutlookCom.OlDaysOfWeek.olMonday; break;
+                case DayOfWeek.Tuesday: mask |= OutlookCom.OlDaysOfWeek.olTuesday; break;
+                case DayOfWeek.Wednesday: mask |= OutlookCom.OlDaysOfWeek.olWednesday; break;
+                case DayOfWeek.Thursday: mask |= OutlookCom.OlDaysOfWeek.olThursday; break;
+                case DayOfWeek.Friday: mask |= OutlookCom.OlDaysOfWeek.olFriday; break;
+                case DayOfWeek.Saturday: mask |= OutlookCom.OlDaysOfWeek.olSaturday; break;
+                case DayOfWeek.Sunday: mask |= OutlookCom.OlDaysOfWeek.olSunday; break;
             }
         }
 
         if (!includeNonWorkingDays)
         {
-            mask &= ~OlDaysOfWeek.olSaturday;
-            mask &= ~OlDaysOfWeek.olSunday;
+            mask &= ~OutlookCom.OlDaysOfWeek.olSaturday;
+            mask &= ~OutlookCom.OlDaysOfWeek.olSunday;
         }
 
         return mask;
@@ -568,7 +419,7 @@ public sealed class OutlookComClient : IDisposable
         return date.UtcDateTime;
     }
 
-    private static Application GetApplication()
+    private static OutlookCom.Application GetOutlookApp()
     {
         ExceptionDispatchInfo? info = null;
 
@@ -577,9 +428,9 @@ public sealed class OutlookComClient : IDisposable
             try
             {
                 info = null;
-                return new Application();
+                return new OutlookCom.Application();
             }
-            catch (COMException ex) when ((uint)ex.ErrorCode is 0x80010001 or 0x8001010A or 0x800706BA or 0x80010108)
+            catch (COMException ex) when ((uint)ex.ErrorCode is RPC_E_CALL_REJECTED or RPC_E_SERVERCALL_RETRYLATER or RPC_E_SERVER_UNAVAILABLE or RPC_E_DISCONNECTED)
             {
                 info = ExceptionDispatchInfo.Capture(ex);
             }
