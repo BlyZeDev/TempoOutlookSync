@@ -249,7 +249,7 @@ public sealed class ServiceRunner : IDisposable
 
                     existingTempoAppointments.Remove(entry.Id);
                 }
-                if (!needsCreation || appointmentInfo is null) continue;
+                if (!needsCreation || appointmentInfo.Category is null) continue;
 
                 changeCount++;
                 switch (entry.RecurrenceRule)

@@ -274,28 +274,41 @@ public sealed class OutlookComClient : IDisposable
             appointment.Subject = info.Subject;
             appointment.BodyFormat = OlBodyFormat.olFormatHTML;
 
+            NameSpace? ns = null;
+            MAPIFolder? deletedFolder = null;
+            Items? deletedFolderItems = null;
             MailItem? mail = null;
+            Inspector? mailInspector = null;
+            Inspector? appointmentInspector = null;
             try
             {
-                mail = (MailItem)outlook.CreateItem(OlItemType.olMailItem);
+                ns = outlook.GetNamespace("MAPI");
 
-                mail.BodyFormat = OlBodyFormat.olFormatHTML;
+                deletedFolder = ns.GetDefaultFolder(OlDefaultFolders.olFolderDeletedItems);
+                deletedFolderItems = deletedFolder.Items;
+                mail = (MailItem)deletedFolderItems.Add(OlItemType.olMailItem);
                 mail.HTMLBody = BuildAppointmentHtml(info);
 
-                var mailDoc = mail.GetInspector.WordEditor;
-                var appointmentDoc = appointment.GetInspector.WordEditor;
+                mailInspector = mail.GetInspector;
+                appointmentInspector = appointment.GetInspector;
 
-                mailDoc.Range().FormattedText.Copy();
-                appointmentDoc.Range().FormattedText.Paste();
+                var mailDoc = mailInspector.WordEditor;
+                var appointmentDoc = appointmentInspector.WordEditor;
 
-                appointmentDoc.Saved = true;
+                appointmentDoc.Range().FormattedText = mailDoc.Range().FormattedText;
+
                 appointmentDoc.ShowSpellingErrors = false;
+                appointmentDoc.Saved = true;
 
-                mail.Close(OlInspectorClose.olDiscard);
+                mail.Delete();
             }
             finally
             {
+                ReleaseComObject(appointmentInspector);
+                ReleaseComObject(mailInspector);
                 ReleaseComObject(mail);
+                ReleaseComObject(deletedFolderItems);
+                ReleaseComObject(deletedFolder);
             }
 
             appointment.Start = start;
@@ -304,7 +317,7 @@ public sealed class OutlookComClient : IDisposable
 
             if (info.Category is not null)
             {
-                var ns = outlook.GetNamespace("MAPI");
+                ns = outlook.GetNamespace("MAPI");
                 var categories = ns.Categories;
 
                 var category = categories[info.Category.Name];
@@ -356,7 +369,7 @@ public sealed class OutlookComClient : IDisposable
             """);
 
         sb.AppendLine("""
-            <div style="color:#666666; font-size:12pt; font-style:italic;">
+            <div style="color:#666666; font-size:11pt; font-style:italic;">
                 Auto-imported from Jira Tempo
             </div>
             """);
@@ -366,7 +379,7 @@ public sealed class OutlookComClient : IDisposable
             SetSpace(20);
 
             sb.AppendLine($"""
-                <div style="font-size:22pt; font-weight:600;">
+                <div style="font-size:20pt; font-weight:600;">
                     {WebUtility.HtmlEncode(info.Summary)}
                 </div>
                 """);
@@ -377,7 +390,7 @@ public sealed class OutlookComClient : IDisposable
             SetSpace(20);
 
             sb.AppendLine($"""
-                <div style="font-size:16pt;">
+                <div style="font-size:15pt;">
                     {WebUtility.HtmlEncode(info.Subject)}
                 </div>
                 """);
@@ -391,7 +404,7 @@ public sealed class OutlookComClient : IDisposable
 
             sb.AppendLine($"""
                 <div>
-                    <a href="{url}" style="color:#9B59B6; font-size:14pt; text-decoration:underline;">
+                    <a href="{url}" style="color:#9B59B6; font-size:13pt; text-decoration:underline;">
                         {url}
                     </a>
                 </div>
@@ -404,7 +417,7 @@ public sealed class OutlookComClient : IDisposable
 
             sb.AppendLine($"""
                 <div>
-                    <div style="font-size:16pt; color:#2C3E50; font-weight:600;">
+                    <div style="font-size:15pt; color:#2C3E50; font-weight:600;">
                         📎 Linked issues ({info.LinkedIssues.Count})
                     </div>
                 """);
@@ -420,7 +433,7 @@ public sealed class OutlookComClient : IDisposable
                 if (!string.IsNullOrWhiteSpace(relation))
                 {
                     sb.AppendLine($"""
-                        <div style="font-size:12pt; color:#7F8C8D; font-style:italic;">
+                        <div style="font-size:11pt; color:#7F8C8D; font-style:italic;">
                             {relation}
                         </div>
                         """);
@@ -429,7 +442,7 @@ public sealed class OutlookComClient : IDisposable
                 if (!string.IsNullOrWhiteSpace(summary))
                 {
                     sb.AppendLine($"""
-                        <div style="font-size:13pt;">
+                        <div style="font-size:12pt;">
                             {summary}
                         </div>
                         """);
@@ -437,7 +450,7 @@ public sealed class OutlookComClient : IDisposable
 
                 sb.AppendLine($"""
                         <div>
-                            <a href="{url}" style="color:#9B59B6; font-size:13pt; text-decoration:underline;">
+                            <a href="{url}" style="color:#9B59B6; font-size:12pt; text-decoration:underline;">
                                 {url}
                             </a>
                         </div>
@@ -483,7 +496,7 @@ public sealed class OutlookComClient : IDisposable
             SetSpace(10);
 
             sb.AppendLine($"""
-                <div style="font-size:12pt; font-style:italic; color:#666666;">
+                <div style="font-size:11pt; font-style:italic; color:#666666;">
                     {nameof(TempoOutlookSync)} Version {WebUtility.HtmlEncode(_update.Version)}
                 </div>
                 """);
