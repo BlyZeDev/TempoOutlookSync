@@ -1,10 +1,12 @@
 ﻿namespace TempoOutlookSync.Services;
 
 using DotTray;
+using Microsoft.Win32;
 using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
+using System.Net.NetworkInformation;
 using TempoOutlookSync.Common;
 using TempoOutlookSync.Models;
 
@@ -109,22 +111,30 @@ public sealed class ServiceRunner : IDisposable
                 x.BackgroundHoverColor = new TrayColor(255, 0, 0);
                 x.Clicked = async _ =>
                 {
-                    if (!_syncState.Transition(SyncState.Blocked)) return;
+                    if (_syncState.IsSyncing || _syncState.IsBlocked) return;
 
-                    _logger.LogInfo("Started deleting all synced entries");
-                    await Task.Run(() =>
+                    _syncState.AddBlocker(SyncBlocker.Manual);
+
+                    try
                     {
-                        foreach (var appointment in _outlook.GetTempoAppointments())
+                        _logger.LogInfo("Started deleting all synced entries");
+
+                        await Task.Run(() =>
                         {
-                            _outlook.DeleteByEntryId(appointment.EntryId);
-                        }
-                    });
+                            foreach (var appointment in _outlook.GetTempoAppointments())
+                            {
+                                _outlook.DeleteByEntryId(appointment.EntryId);
+                            }
 
-                    _outlook.PurgeTrashedTempoAppointments();
+                            _outlook.PurgeTrashedTempoAppointments();
+                        });
 
-                    _logger.LogInfo("Finished deleting all synced entries");
-
-                    _syncState.Transition(SyncState.Idle);
+                        _logger.LogInfo("Finished deleting all synced entries");
+                    }
+                    finally
+                    {
+                        _syncState.RemoveBlocker(SyncBlocker.Manual);
+                    }
                 };
             });
         });
@@ -149,6 +159,11 @@ public sealed class ServiceRunner : IDisposable
         _logger.Log += OnLog;
         _syncState.StateChanged += OnSyncStateChange;
         _icon.PopupShowing += OnPopupShowing;
+
+        SystemEvents.SessionSwitch += OnSessionSwitch;
+        SystemEvents.SessionEnded += OnSessionEnd;
+        SystemEvents.PowerModeChanged += OnPowerModeChange;
+        NetworkChange.NetworkAvailabilityChanged += OnNetworkAvailabilityChange;
 
         _icon.ShowBalloon(new BalloonNotification
         {
@@ -177,6 +192,11 @@ public sealed class ServiceRunner : IDisposable
             catch (OperationCanceledException) { }
         }
 
+        NetworkChange.NetworkAvailabilityChanged -= OnNetworkAvailabilityChange;
+        SystemEvents.PowerModeChanged -= OnPowerModeChange;
+        SystemEvents.SessionEnded -= OnSessionEnd;
+        SystemEvents.SessionSwitch -= OnSessionSwitch;
+
         _icon.PopupShowing -= OnPopupShowing;
         _syncState.StateChanged -= OnSyncStateChange;
         _logger.Log -= OnLog;
@@ -201,34 +221,68 @@ public sealed class ServiceRunner : IDisposable
         });
     }
 
-    private void OnSyncStateChange(SyncState state)
+    private void OnSyncStateChange()
     {
-        var isSyncing = _syncState.IsSyncing;
+        _logger.LogDebug($"State changed to {_syncState.State} | {_syncState.Blockers}");
 
-        _syncNowMenuItem.IsDisabled = isSyncing || !_syncState.CanSync;
-        _debugMenuItem.IsDisabled = isSyncing;
+        var isBusy = _syncState.IsSyncing || _syncState.IsBlocked;
+        _syncNowMenuItem.IsDisabled = _debugMenuItem.IsDisabled = isBusy;
 
         OnPopupShowing(MouseButton.None);
 
-        if (isSyncing) _icon.SetIcon(_context.BusyIcoPath);
+        if (isBusy) _icon.SetIcon(_context.BusyIcoPath);
         else _icon.SetIcon(_context.DefaultIcoPath);
     }
 
     private void OnPopupShowing(MouseButton mouseButton)
     {
-        _nextSyncMenuItem.Text = _syncState.State switch
-        {
-            SyncState.Syncing => "Syncing...",
-            SyncState.Blocked => "Blocked...",
-            _ => $"Next Sync in {Util.FormatTime(GetRemainingUntilSync(lastSyncUtcBinary))}"
-        };
+        if (_syncState.IsSyncing) _nextSyncMenuItem.Text = "Syncing...";
+        else if (_syncState.IsBlocked) _nextSyncMenuItem.Text = $"Blocked - {_syncState.Blockers}";
+        else _nextSyncMenuItem.Text = $"Next Sync in {Util.FormatTime(GetRemainingUntilSync(lastSyncUtcBinary))}";
     }
 
-    private async Task SyncTempoToOutlookAsync()
+    private void OnSessionSwitch(object sender, SessionSwitchEventArgs args)
     {
-        if (!_syncState.Transition(SyncState.Syncing))
+        switch (args.Reason)
         {
-            _logger.LogDebug($"Sync skipped - State not {SyncState.Idle}");
+            case SessionSwitchReason.ConsoleConnect
+            or SessionSwitchReason.RemoteConnect
+            or SessionSwitchReason.SessionLogon
+            or SessionSwitchReason.SessionUnlock:
+                _syncState.RemoveBlocker(SyncBlocker.Session);
+                break;
+
+            case SessionSwitchReason.ConsoleDisconnect
+            or SessionSwitchReason.RemoteDisconnect
+            or SessionSwitchReason.SessionLogoff
+            or SessionSwitchReason.SessionLock:
+                _syncState.AddBlocker(SyncBlocker.Session);
+                break;
+        }
+    }
+
+    private void OnSessionEnd(object sender, SessionEndedEventArgs args) => _syncState.AddBlocker(SyncBlocker.Session);
+
+    private void OnPowerModeChange(object sender, PowerModeChangedEventArgs args)
+    {
+        switch (args.Mode)
+        {
+            case PowerModes.Resume: _syncState.RemoveBlocker(SyncBlocker.Power); break;
+            case PowerModes.Suspend: _syncState.AddBlocker(SyncBlocker.Power); break;
+        }
+    }
+
+    private void OnNetworkAvailabilityChange(object? sender, NetworkAvailabilityEventArgs args)
+    {
+        if (args.IsAvailable) _syncState.RemoveBlocker(SyncBlocker.Network);
+        else _syncState.AddBlocker(SyncBlocker.Network);
+    }
+
+    private async Task SyncTempoToOutlookAsync() //Maybe look into Microsoft.Win32.TaskScheduler
+    {
+        if (!_syncState.TryStartSync())
+        {
+            _logger.LogDebug($"Sync skipped - Either already syncing or blocked");
             return;
         }
 
@@ -319,7 +373,7 @@ public sealed class ServiceRunner : IDisposable
         finally
         {
             Interlocked.Exchange(ref lastSyncUtcBinary, DateTime.UtcNow.ToBinary());
-            _syncState.Transition(SyncState.Idle);
+            _syncState.FinishSync();
         }
     }
 

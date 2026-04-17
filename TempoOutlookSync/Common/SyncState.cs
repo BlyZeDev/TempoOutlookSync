@@ -3,6 +3,5 @@
 public enum SyncState
 {
     Idle,
-    Syncing,
-    Blocked
+    Syncing
 }

@@ -7,6 +7,7 @@ public sealed class SyncStateMachine
     private readonly Lock _lock;
 
     private SyncState currentState;
+    private SyncBlocker blockers;
 
     public SyncState State
     {
@@ -19,39 +20,88 @@ public sealed class SyncStateMachine
         }
     }
 
-    public bool CanSync => State is SyncState.Idle;
-    public bool IsSyncing => State is SyncState.Syncing;
+    public SyncBlocker Blockers
+    {
+        get
+        {
+            using (_ = _lock.EnterScope())
+            {
+                return blockers;
+            }
+        }
+    }
 
-    public event Action<SyncState>? StateChanged;
+    public bool IsSyncing
+    {
+        get
+        {
+            using ( _ = _lock.EnterScope())
+            {
+                return currentState is SyncState.Syncing;
+            }
+        }
+    }
+
+    public bool IsBlocked
+    {
+        get
+        {
+            using (_ = _lock.EnterScope())
+            {
+                return blockers is not SyncBlocker.None;
+            }
+        }
+    }
+
+    public event Action? StateChanged;
 
     public SyncStateMachine()
     {
         _lock = new Lock();
         currentState = SyncState.Idle;
+        blockers = SyncBlocker.None;
     }
 
-    public bool Transition(SyncState state)
+    public bool TryStartSync()
     {
         using (_ = _lock.EnterScope())
         {
-            if (currentState == state) return false;
+            if (currentState is not SyncState.Idle || blockers is not SyncBlocker.None) return false;
 
-            if (!IsValidTransition(currentState, state)) return false;
-
-            currentState = state;
-            StateChanged?.Invoke(currentState);
-            return true;
+            currentState = SyncState.Syncing;
         }
+
+        StateChanged?.Invoke();
+        return true;
     }
 
-    private static bool IsValidTransition(SyncState from, SyncState to)
+    public void FinishSync()
     {
-        return from switch
+        using (_ = _lock.EnterScope())
         {
-            SyncState.Idle => to is SyncState.Syncing or SyncState.Blocked,
-            SyncState.Syncing => to is SyncState.Idle or SyncState.Blocked,
-            SyncState.Blocked => to is SyncState.Idle,
-            _ => false
-        };
+            currentState = SyncState.Idle;
+        }
+
+        StateChanged?.Invoke();
+    }
+
+    public void AddBlocker(SyncBlocker blocker)
+    {
+        using (_ = _lock.EnterScope())
+        {
+            blockers |= blocker;
+        }
+
+        StateChanged?.Invoke();
+    }
+
+    public void RemoveBlocker(SyncBlocker blocker)
+    {
+        using (_ = _lock.EnterScope())
+        {
+            blockers &= ~blocker;
+        }
+
+        StateChanged?.Invoke();
     }
 }
