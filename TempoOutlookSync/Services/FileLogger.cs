@@ -3,25 +3,28 @@
 using System.Text;
 using TempoOutlookSync.Common;
 
-public sealed class FileLogger : ILoggerTarget
+public sealed class FileLogger : ILoggerTarget, IDisposable
 {
-    private readonly StreamWriter _writer;
+    private const string LoggerMutexId = $"{TempoOutlookSyncContext.ApplicationMutexId}-FileLogger";
+    private const int MutexTimeoutMs = 1000;
+
+    private readonly TempoOutlookSyncContext _context;
+
+    private readonly Mutex _mutex;
+
+    private bool hasHandle;
 
     public FileLogger(TempoOutlookSyncContext context)
     {
-        var fileStream = new FileStream(
-            Path.Combine(context.LogDirectory, $"{Util.GetFileNameTimestamp()}.log"),
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.Read);
+        _context = context;
 
-        _writer = new StreamWriter(fileStream, Encoding.UTF8);
+        _mutex = new Mutex(false, LoggerMutexId);
     }
 
     public void LogMessage(LogLevel logLevel, string text, Exception? exception, CallerInfo? callerInfo)
     {
         var builder = new StringBuilder();
-        builder.Append($"{DateTime.Now:dd.MM.yyyy HH:mm:ss.ffff} | ");
+        builder.Append($"{DateTime.Now:dd.MM.yyyy HH:mm:ss.ffff} | [{(_context.IsHeadless ? "Sync" : "App")}] | ");
         builder.Append(logLevel.ToString());
 
         if (callerInfo is not null) builder.Append($" | {callerInfo}");
@@ -34,7 +37,49 @@ public sealed class FileLogger : ILoggerTarget
             builder.AppendLine(exception.ToString());
         }
 
-        _writer.Write(builder.ToString());
-        _writer.Flush();
+        try
+        {
+            hasHandle = _mutex.WaitOne(MutexTimeoutMs, false);
+        }
+        catch (AbandonedMutexException)
+        {
+            hasHandle = true;
+        }
+
+        if (!hasHandle) return;
+
+        try
+        {
+            var path = Path.Combine(_context.LogDirectory, $"{DateTime.Now:yyyy-MM-dd}.log");
+            using (var fileStream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read))
+            {
+                using (var writer = new StreamWriter(fileStream, Encoding.UTF8))
+                {
+                    writer.Write(builder.ToString());
+                }
+            }
+        }
+        finally
+        {
+            _mutex.ReleaseMutex();
+            hasHandle = false;
+        }
     }
+
+    public void Dispose()
+    {
+        try
+        {
+            if (hasHandle) _mutex.ReleaseMutex();
+            hasHandle = false;
+        }
+        catch (Exception) { }
+        finally
+        {
+            _mutex.Dispose();
+            GC.SuppressFinalize(this);
+        }
+    }
+
+    ~FileLogger() => Dispose();
 }

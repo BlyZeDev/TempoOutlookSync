@@ -293,7 +293,7 @@ public sealed class OutlookComClient : IDisposable
                 deletedFolder = ns.GetDefaultFolder(OutlookCom.OlDefaultFolders.olFolderDeletedItems);
                 deletedFolderItems = deletedFolder.Items;
                 mail = (OutlookCom.MailItem)deletedFolderItems.Add(OutlookCom.OlItemType.olMailItem);
-                mail.HTMLBody = info.BuildHtmlBody(_update.Version);
+                mail.HTMLBody = info.BuildHtmlBody(_update.VersionString);
 
                 mailInspector = mail.GetInspector;
                 appointmentInspector = appointment.GetInspector;

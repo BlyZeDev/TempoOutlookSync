@@ -2,8 +2,6 @@
 
 public sealed class StartupGuard : IDisposable
 {
-    private const string Guid = "07863666-66fb-41ba-9cc1-83725487810d";
-    private const string MutexId = $@"Global\{{{nameof(TempoOutlookSync)}-{Guid}}}";
     private const int MutexTimeoutMs = 5000;
 
     private readonly Mutex _mutex;
@@ -12,7 +10,7 @@ public sealed class StartupGuard : IDisposable
 
     public StartupGuard()
     {
-        _mutex = new Mutex(false, MutexId, out _);
+        _mutex = new Mutex(false, TempoOutlookSyncContext.ApplicationMutexId);
     }
 
     public bool WaitForAccess()

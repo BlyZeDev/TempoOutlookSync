@@ -40,10 +40,11 @@
     </PackageReference>
     <PackageReference Include="DotTray" Version="2.2.2" />
     <PackageReference Include="Jab" Version="0.12.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="10.0.5" />
-    <PackageReference Include="System.Drawing.Common" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.7" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.7" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.FileExtensions" Version="10.0.7" />
+    <PackageReference Include="System.Drawing.Common" Version="10.0.7" />
+    <PackageReference Include="TaskScheduler" Version="2.12.2" />
     <PackageReference Include="Velopack" Version="0.0.1298" />
   </ItemGroup>
 

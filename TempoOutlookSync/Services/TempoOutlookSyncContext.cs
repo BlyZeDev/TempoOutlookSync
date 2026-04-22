@@ -10,6 +10,8 @@ public sealed class TempoOutlookSyncContext : IDisposable
     public const string UserSettingsFileName = "usersettings.toml";
     public const string CategoriesFileName = "categories.toml";
 
+    public const string ApplicationMutexId = $@"Global\{{{nameof(TempoOutlookSync)}-07863666-66fb-41ba-9cc1-83725487810d}}";
+
     private readonly HashSet<string> _tempPaths;
 
     /// <summary>
@@ -69,18 +71,36 @@ public sealed class TempoOutlookSyncContext : IDisposable
     }
 
     /// <summary>
+    /// The author of the application
+    /// </summary>
+    public string Author => "BlyZeDev";
+
+    /// <summary>
     /// The base url to the GitHub repository
     /// </summary>
-    public string GitHubRepoUrl => $"https://github.com/BlyZeDev/{nameof(TempoOutlookSync)}";
+    public string GitHubRepoUrl => $"https://github.com/{Author}/{nameof(TempoOutlookSync)}";
 
     /// <summary>
     /// The url to the documentation
     /// </summary>
     public string HelpUrl => "https://edocag.atlassian.net/wiki/x/7wnyhw";
 
+    /// <summary>
+    /// The application argument use to indicate a headless sync and abort
+    /// </summary>
+    public string HeadlessArgument => "--sync";
+
+    /// <summary>
+    /// <see langword="true"/> if the application is running in headless mode (without UI), otherwise <see langword="false"/>
+    /// </summary>
+    public bool IsHeadless { get; }
+
     public TempoOutlookSyncContext()
     {
         _tempPaths = [];
+
+        var args = Environment.GetCommandLineArgs();
+        IsHeadless = args.Length == 2 && args[1].Equals(HeadlessArgument, StringComparison.Ordinal);
 
         var icoPath = CreateIco("icon.ico");
         if (!File.Exists(icoPath)) icoPath = CreateFallbackIco();
@@ -137,17 +157,17 @@ public sealed class TempoOutlookSyncContext : IDisposable
             }
         }
 
-        var deletetionBaseline = DateTime.UtcNow.AddDays(-7);
+        var deletionBaseline = DateTime.UtcNow.AddDays(-7);
         foreach (var logFile in Directory.EnumerateFiles(LogDirectory, "*.log", SearchOption.TopDirectoryOnly))
         {
-            if (File.GetCreationTimeUtc(logFile) < deletetionBaseline)
+            try
             {
-                try
+                if (File.GetLastWriteTimeUtc(logFile) < deletionBaseline)
                 {
                     File.Delete(logFile);
                 }
-                catch (Exception) { }
             }
+            catch (Exception) { }
         }
 
         GC.SuppressFinalize(this);

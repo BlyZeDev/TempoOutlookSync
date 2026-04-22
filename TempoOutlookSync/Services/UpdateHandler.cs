@@ -8,7 +8,17 @@ public sealed class UpdateHandler
     private readonly ILogger _logger;
     private readonly UpdateManager _manager;
 
-    public string? Version => _manager.CurrentVersion?.ToFullString();
+    public Version? Version
+    {
+        get
+        {
+            var curVer = _manager.CurrentVersion;
+            if (curVer is null) return null;
+
+            return new Version(curVer.Major, curVer.Minor, curVer.Patch);
+        }
+    }
+    public string? VersionString => _manager.CurrentVersion?.ToFullString();
 
     public UpdateHandler(ILogger logger, TempoOutlookSyncContext context)
     {

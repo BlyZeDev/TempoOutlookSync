@@ -4,8 +4,9 @@ using Jab;
 
 [ServiceProvider]
 [Singleton<StartupGuard>]
-[Singleton<SyncStateMachine>]
-[Singleton<ServiceRunner>]
+[Singleton<SynchronizationScheduler>]
+[Singleton<SynchronizationHandler>]
+[Singleton<TrayService>]
 [Singleton<ILoggerTarget, FileLogger>]
 #if DEBUG
 [Singleton<ILoggerTarget, DebugLogger>]
