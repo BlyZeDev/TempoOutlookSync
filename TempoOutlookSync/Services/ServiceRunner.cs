@@ -278,7 +278,7 @@ public sealed class ServiceRunner : IDisposable
         else _syncState.AddBlocker(SyncBlocker.Network);
     }
 
-    private async Task SyncTempoToOutlookAsync() //Maybe look into Microsoft.Win32.TaskScheduler
+    private async Task SyncTempoToOutlookAsync()
     {
         if (!_syncState.TryStartSync())
         {
